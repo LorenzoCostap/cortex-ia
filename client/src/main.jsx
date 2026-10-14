@@ -12,6 +12,7 @@ import Dashboard from './pages/Dashboard.jsx';
 import Assistant from './pages/Assistant.jsx';
 import Sales from './pages/Sales.jsx';
 import Import from './pages/Import.jsx';
+import Goals from './pages/Goals.jsx';
 import Reports from './pages/Reports.jsx';
 import History from './pages/History.jsx';
 import Settings from './pages/Settings.jsx';
@@ -38,6 +39,7 @@ function AppRoutes() {
       <Route path="/" element={<Guard perm="dashboard"><Dashboard /></Guard>} />
       <Route path="/assistente" element={<Guard perm="assistente"><Assistant /></Guard>} />
       <Route path="/vendas" element={<Guard perm="vendas"><Sales /></Guard>} />
+      <Route path="/metas" element={<Guard perm="metas"><Goals /></Guard>} />
       <Route path="/importacao" element={<Guard perm="importacao"><Import /></Guard>} />
       <Route path="/relatorios" element={<Guard perm="relatorios"><Reports /></Guard>} />
       <Route path="/relatorios/:id" element={<Guard perm="relatorios"><Reports /></Guard>} />

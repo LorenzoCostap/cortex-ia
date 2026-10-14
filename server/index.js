@@ -8,12 +8,15 @@ import { loadUser, requireAuth, requirePerm, can, createSession, destroySession,
 import * as M from './metrics.js';
 import { ask, ollamaStatus, ollamaSpeed } from './ai.js';
 import { QUESTIONS } from './answers.js';
-import { subscribe, broadcast, tvCount, refreshInsights, getInsights, buildReport, saveReport, REPORT_TYPES, startScheduler } from './services.js';
+import { subscribe, broadcast, tvCount, refreshInsights, getInsights, buildReport, saveReport, REPORT_TYPES, startScheduler, scanWatchFolder, watchStatus } from './services.js';
+import { TYPES, readFile, detectType, autoMap, validate, commit, stash, unstash, drop } from './importer.js';
+import { runBackup, listBackups, restoreBackup, defaultBackupDir } from './backup.js';
 import { seedDemo, generateDemoData } from './seed.js';
 import { isIso, refMonth, monthStart, monthEnd, todayStr, addMonths } from './dates.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
+app.use('/api/import/preview', express.raw({ type: '*/*', limit: '60mb' }));
 app.use(express.json({ limit: '1mb' }));
 app.use(loadUser);
 
@@ -66,7 +69,7 @@ app.post('/api/auth/password', requireAuth, (req, res) => {
 /* ---------- Painéis ---------- */
 app.get('/api/dashboard', requirePerm('dashboard'), (req, res) => {
   const m = /^\d{4}-\d{2}$/.test(req.query.month || '') ? `${req.query.month}-01` : undefined;
-  res.json({ ...M.dashboard(org(req), m), insights: getInsights(org(req)) });
+  res.json({ ...M.dashboard(org(req), m), forecast: M.forecast(org(req)), insights: getInsights(org(req)) });
 });
 
 app.get('/api/goal-series', requirePerm('dashboard'), (req, res) => {
@@ -198,6 +201,9 @@ app.put('/api/settings', requirePerm('configuracoes'), (req, res) => {
   const patch = {};
   if (ai) patch.ai = { url: String(ai.url || '').trim() || 'http://localhost:11434', model: String(ai.model || '').trim() || 'qwen2.5:7b', autoInsights: !!ai.autoInsights, showTools: !!ai.showTools };
   if (tv) patch.tv = { interval: Math.min(300, Math.max(30, +tv.interval || 30)), questionInterval: Math.min(30, Math.max(5, +tv.questionInterval || 10)), goalPeriod: ['7d', '30d', 'tri', '12m'].includes(tv.goalPeriod) ? tv.goalPeriod : '12m', screens: tv.screens, hideMoney: !!tv.hideMoney };
+  const imp = req.body?.import, bk = req.body?.backup;
+  if (imp?.watch) patch.import = { watch: { enabled: !!imp.watch.enabled, path: String(imp.watch.path || '').trim(), intervalMin: [15, 30, 60, 180, 720, 1440].includes(+imp.watch.intervalMin) ? +imp.watch.intervalMin : 60 } };
+  if (bk) patch.backup = { enabled: !!bk.enabled, hour: Math.min(23, Math.max(0, +bk.hour || 0)), dir: String(bk.dir || '').trim(), keep: Math.min(365, Math.max(1, +bk.keep || 30)) };
   if (appearance) patch.appearance = { theme: ['dark', 'light', 'system'].includes(appearance.theme) ? appearance.theme : 'dark', animations: !!appearance.animations };
   const s = saveSettings(org(req), patch);
   logEvent(org(req), req.user.id, 'config', 'Configurações da organização atualizadas');
@@ -266,6 +272,116 @@ app.put('/api/permissions', requirePerm('administracao'), (req, res) => {
   const s = saveSettings(org(req), { permissions: clean, ...(sec ? { security: { strongPassword: !!sec.strongPassword, sessionHours: [8, 12, 24, 72].includes(+sec.sessionHours) ? +sec.sessionHours : 12 }, tv: { hideMoney: !!sec.hideMoney } } : {}) });
   logEvent(org(req), req.user.id, 'admin', 'Permissões atualizadas');
   res.json({ permissions: s.permissions, security: s.security });
+});
+
+/* ---------- Importação ---------- */
+app.get('/api/import/types', requirePerm('importacao'), (req, res) => {
+  res.json(Object.fromEntries(Object.entries(TYPES).map(([k, t]) => [k, { label: t.label, fields: t.fields.map(({ key, label, required }) => ({ key, label, required: !!required })) }])));
+});
+
+app.post('/api/import/preview', requirePerm('importacao'), wrap(async (req, res) => {
+  const filename = decodeURIComponent(String(req.headers['x-filename'] || 'planilha.csv'));
+  if (!req.body?.length) return res.status(400).json({ error: 'Arquivo vazio.' });
+  let parsed;
+  try { parsed = await readFile(req.body, filename); } catch (e) { return res.status(400).json({ error: e.message }); }
+  const type = detectType(parsed.headers);
+  const token = stash(org(req), filename, parsed);
+  res.json({ token, filename, type, headers: parsed.headers, sample: parsed.rows.slice(0, 5), rowCount: parsed.rows.length, mapping: autoMap(type, parsed.headers), mappings: Object.fromEntries(Object.keys(TYPES).map((t) => [t, autoMap(t, parsed.headers)])) });
+}));
+
+const cleanMapping = (m) => Object.fromEntries(Object.entries(m || {}).filter(([, v]) => v !== '' && v !== null && v !== undefined).map(([k, v]) => [k, +v]));
+
+app.post('/api/import/validate', requirePerm('importacao'), (req, res) => {
+  try {
+    const p = unstash(org(req), req.body?.token);
+    const v = validate(req.body.type, p.rows, cleanMapping(req.body.mapping));
+    res.json({ ...v, valid: undefined, validCount: v.valid.length });
+  } catch (e) { res.status(400).json({ error: e.message }); }
+});
+
+app.post('/api/import/commit', requirePerm('importacao'), (req, res) => {
+  try {
+    const p = unstash(org(req), req.body?.token);
+    const v = validate(req.body.type, p.rows, cleanMapping(req.body.mapping));
+    if (v.missing.length) return res.status(400).json({ error: `Faltam colunas obrigatórias: ${v.missing.join(', ')}` });
+    if (!v.valid.length) return res.status(400).json({ error: 'Nenhuma linha válida para importar.' });
+    const r = commit(org(req), req.user.id, req.body.type, v.valid, { mode: req.body.mode === 'replace' ? 'replace' : 'append', filename: p.filename });
+    drop(req.body.token);
+    refreshInsights(org(req), { force: true }).catch(() => {});
+    res.json({ ...r, errorCount: v.errorCount });
+  } catch (e) { res.status(400).json({ error: e.message }); }
+});
+
+app.put('/api/import/settings', requirePerm('importacao'), (req, res) => {
+  const { watch, backup } = req.body || {};
+  const patch = {};
+  if (watch) patch.import = { watch: { enabled: !!watch.enabled, path: String(watch.path || '').trim(), intervalMin: [15, 30, 60, 180, 720, 1440].includes(+watch.intervalMin) ? +watch.intervalMin : 60 } };
+  if (backup) patch.backup = { enabled: !!backup.enabled, hour: Math.min(23, Math.max(0, +backup.hour || 0)), dir: String(backup.dir || '').trim(), keep: Math.min(365, Math.max(1, +backup.keep || 30)) };
+  if (patch.import?.watch.enabled && patch.import.watch.path && !fs.existsSync(patch.import.watch.path)) return res.status(400).json({ error: 'Essa pasta não existe neste computador.' });
+  const s = saveSettings(org(req), patch);
+  logEvent(org(req), req.user.id, 'config', watch ? 'Pasta monitorada atualizada' : 'Configuração de backup atualizada');
+  res.json({ import: s.import, backup: s.backup });
+});
+
+app.get('/api/import/watch', requirePerm('importacao'), (req, res) => res.json({ settings: getSettings(org(req)).import.watch, ...watchStatus(org(req)) }));
+app.post('/api/import/watch/scan', requirePerm('importacao'), wrap(async (req, res) => res.json(await scanWatchFolder(org(req), { force: true }))));
+
+/* ---------- Backup ---------- */
+app.get('/api/backup', requirePerm('importacao'), (req, res) => {
+  const b = getSettings(org(req)).backup;
+  res.json({ settings: b, defaultDir: defaultBackupDir(), backups: listBackups(b.dir).slice(0, 20) });
+});
+app.post('/api/backup/run', requirePerm('importacao'), wrap(async (req, res) => {
+  const b = getSettings(org(req)).backup;
+  try {
+    const r = await runBackup(b.dir, b.keep);
+    logEvent(org(req), req.user.id, 'config', `Backup manual criado: ${r.file}`);
+    res.json(r);
+  } catch (e) { res.status(400).json({ error: `Não foi possível salvar o backup: ${e.message}` }); }
+}));
+app.post('/api/backup/restore', requirePerm('administracao'), wrap(async (req, res) => {
+  const b = getSettings(org(req)).backup;
+  try {
+    const r = await restoreBackup(b.dir, String(req.body?.file || ''));
+    try { logEvent(org(req), req.user.id, 'config', `Backup restaurado: ${r.restored}`); } catch { /* a organização pode não existir no backup */ }
+    res.json(r);
+  } catch (e) { res.status(400).json({ error: e.message }); }
+}));
+
+/* ---------- Metas ---------- */
+app.get('/api/goals', requirePerm('metas'), (req, res) => {
+  const month = /^\d{4}-\d{2}$/.test(req.query.month || '') ? req.query.month : todayStr().slice(0, 7);
+  res.json({ month, months: M.goalsOverview(org(req)), forecast: M.forecast(org(req), `${month}-01`), vendedor: M.goalItems(org(req), month, 'vendedor'), categoria: M.goalItems(org(req), month, 'categoria') });
+});
+
+app.put('/api/goals', requirePerm('metas'), (req, res) => {
+  const { months = [], items = [] } = req.body || {};
+  const ok = (m) => /^\d{4}-\d{2}$/.test(m);
+  db.transaction(() => {
+    for (const g of months) {
+      if (!ok(g.month)) continue;
+      if (g.target === null || g.target === '' || g.target === undefined) db.prepare('DELETE FROM goals WHERE org_id = ? AND month = ?').run(org(req), g.month);
+      else if (+g.target >= 0) db.prepare('INSERT INTO goals (org_id, month, revenue_target) VALUES (?, ?, ?) ON CONFLICT(org_id, month) DO UPDATE SET revenue_target = excluded.revenue_target').run(org(req), g.month, +g.target);
+    }
+    for (const it of items) {
+      if (!ok(it.month) || !['vendedor', 'categoria'].includes(it.dim) || !it.key) continue;
+      if (it.target === null || it.target === '') db.prepare('DELETE FROM goal_items WHERE org_id = ? AND month = ? AND dim = ? AND key = ?').run(org(req), it.month, it.dim, it.key);
+      else db.prepare('INSERT INTO goal_items (org_id, month, dim, key, target) VALUES (?, ?, ?, ?, ?) ON CONFLICT(org_id, month, dim, key) DO UPDATE SET target = excluded.target').run(org(req), it.month, it.dim, String(it.key), +it.target);
+    }
+  })();
+  logEvent(org(req), req.user.id, 'config', 'Metas atualizadas');
+  res.json({ ok: true });
+});
+
+app.post('/api/goals/copy-last-year', requirePerm('metas'), (req, res) => {
+  const pct = Math.max(-50, Math.min(100, +req.body?.percent || 0));
+  const out = [];
+  for (const g of M.goalsOverview(org(req)).filter((m) => m.status !== 'fechado')) {
+    const ly = `${+g.month.slice(0, 4) - 1}${g.month.slice(4)}`;
+    const base = db.prepare('SELECT COALESCE(SUM(total),0) v FROM orders WHERE org_id = ? AND substr(date,1,7) = ?').get(org(req), ly).v;
+    if (base > 0) out.push({ month: g.month, target: Math.round((base * (1 + pct / 100)) / 1000) * 1000 });
+  }
+  res.json({ suggestions: out });
 });
 
 /* ---------- Dados ---------- */

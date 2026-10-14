@@ -63,6 +63,11 @@ export default function Dashboard() {
           <Kpi label="Margem líquida" value={`${num(k.netMargin, 1)}%`} delta={delta(dl.netMarginPp, { pp: true })} tone={toneOf(dl.netMarginPp)} note={`vs ${prevShort}`} delay={0.1} />
           <Kpi label="Despesas" value={brl(k.expenses)} delta={delta(dl.expenses)} tone={toneOf(dl.expenses, false)} note={`vs ${prevShort}`} delay={0.15} />
           <Kpi label="A receber" value={brl(d.data.receivables.total)} delta={d.data.receivables.overdue ? `${d.data.receivables.overdue} títulos vencidos` : 'Nenhum vencido'} tone={d.data.receivables.overdue ? 'warn' : 'pos'} delay={0.2} />
+          {d.data.forecast?.target && !d.data.forecast.closed && (
+            <Link to="/metas" style={{ color: 'inherit' }} aria-label="Ver metas">
+              <Kpi label={`Previsão de ${d.data.forecast.label.split(' ')[0].toLowerCase()}`} value={brl(d.data.forecast.projection)} delta={`${num(d.data.forecast.projectionPct, 1)}% da meta no ritmo atual`} tone={d.data.forecast.projectionPct >= 100 ? 'pos' : 'warn'} delay={0.25} />
+            </Link>
+          )}
         </section>
       )}
 

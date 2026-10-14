@@ -130,7 +130,39 @@ CREATE TABLE IF NOT EXISTS insights (
 );
 `);
 
-export const MODULES = ['dashboard', 'assistente', 'vendas', 'importacao', 'relatorios', 'historico', 'configuracoes', 'administracao'];
+// Migrações simples: colunas e tabelas adicionadas depois da primeira versão
+function addColumn(table, column, type) {
+  const cols = db.prepare(`PRAGMA table_info(${table})`).all().map((c) => c.name);
+  if (!cols.includes(column)) db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${type}`);
+}
+addColumn('customers', 'seller', 'TEXT');
+addColumn('customers', 'region', 'TEXT');
+addColumn('orders', 'seller', 'TEXT');
+addColumn('orders', 'external_id', 'TEXT');
+db.exec(`
+CREATE TABLE IF NOT EXISTS goal_items (
+  org_id INTEGER NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+  month TEXT NOT NULL,
+  dim TEXT NOT NULL,
+  key TEXT NOT NULL,
+  target REAL NOT NULL,
+  PRIMARY KEY (org_id, month, dim, key)
+);
+CREATE TABLE IF NOT EXISTS imported_files (
+  id INTEGER PRIMARY KEY,
+  org_id INTEGER NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+  path TEXT NOT NULL,
+  mtime INTEGER NOT NULL,
+  status TEXT NOT NULL,
+  rows INTEGER,
+  message TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  UNIQUE(org_id, path, mtime)
+);
+CREATE INDEX IF NOT EXISTS idx_orders_seller ON orders(org_id, seller);
+`);
+
+export const MODULES = ['dashboard', 'assistente', 'vendas', 'metas', 'importacao', 'relatorios', 'historico', 'configuracoes', 'administracao'];
 export const ROLES = ['admin', 'gestor', 'analista', 'visualizador'];
 
 export const DEFAULT_SETTINGS = {
@@ -140,10 +172,13 @@ export const DEFAULT_SETTINGS = {
   org: { currency: 'BRL', timezone: 'America/Sao_Paulo' },
   schedules: { weekly: { enabled: true, weekday: 1, hour: 8 }, monthly: { enabled: true, day: 1, hour: 9 } },
   security: { strongPassword: true, sessionHours: 12 },
+  import: { watch: { enabled: false, path: '', intervalMin: 60 } },
+  backup: { enabled: true, hour: 3, dir: '', keep: 30 },
   permissions: {
     dashboard: { admin: true, gestor: true, analista: true, visualizador: true },
     assistente: { admin: true, gestor: true, analista: true, visualizador: false },
     vendas: { admin: true, gestor: true, analista: true, visualizador: true },
+    metas: { admin: true, gestor: true, analista: true, visualizador: false },
     importacao: { admin: true, gestor: true, analista: false, visualizador: false },
     relatorios: { admin: true, gestor: true, analista: true, visualizador: false },
     historico: { admin: true, gestor: true, analista: false, visualizador: false },

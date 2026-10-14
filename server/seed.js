@@ -31,6 +31,8 @@ const PRODUCTS = [
   ['Biscoito amanteigado 300 g', 'Outros', 7.9, 4], ['Erva-mate 1 kg', 'Outros', 19.9, 4]
 ];
 
+export const SELLERS = [['Juliana Mello', 'Serra Gaúcha'], ['Paulo Henrique', 'Vale do Taquari'], ['Renata Lopes', 'Porto Alegre e região'], ['Tiago Santos', 'Campos de Cima da Serra'], ['André Kunz', 'Serra Gaúcha']];
+const KEY_SELLER = { 'Mercado Bom Preço': 0, 'Rede SuperSul': 2, 'Empório Central': 1, 'Padaria Trigo Fino': 0 };
 const KEY_CUSTOMERS = [
   ['Mercado Bom Preço', 30, 2.6], ['Rede SuperSul', 26, 2.4], ['Empório Central', 14, 1.6], ['Padaria Trigo Fino', 10, 1.2]
 ];
@@ -40,7 +42,7 @@ const SEASON = { 1: 0.82, 2: 0.86, 3: 0.95, 4: 0.98, 5: 1.0, 6: 0.98, 7: 1.03, 8
 const GOAL_FACTORS = [1.02, 0.99, 0.97, 1.04, 1.03, 0.98, 0.995, 0.98, 1.015, 0.985, 0.98, 1.09];
 
 export function clearOrgData(orgId) {
-  for (const t of ['orders', 'customers', 'products', 'expenses', 'bills', 'goals', 'insights', 'reports']) {
+  for (const t of ['orders', 'customers', 'products', 'expenses', 'bills', 'goals', 'goal_items', 'insights', 'reports']) {
     db.prepare(`DELETE FROM ${t} WHERE org_id = ?`).run(orgId);
   }
 }
@@ -67,19 +69,21 @@ export function generateDemoData(orgId, today = todayStr()) {
       return { id, name, price, cost, w };
     });
 
-    const insC = db.prepare('INSERT INTO customers (org_id, code, name) VALUES (?, ?, ?)');
-    const customers = KEY_CUSTOMERS.map(([name, w, size], i) => ({ id: insC.run(orgId, `C-${String(i + 1).padStart(4, '0')}`, name).lastInsertRowid, name, w, size }));
+    const insC = db.prepare('INSERT INTO customers (org_id, code, name, seller, region) VALUES (?, ?, ?, ?, ?)');
+    const sellerFor = (name) => SELLERS[KEY_SELLER[name] ?? [0, 0, 1, 1, 2, 2, 2, 3, 4][Math.floor(rand() * 9)]];
+    const newCustomer = (code, name, w, size) => { const [seller, region] = sellerFor(name); return { id: insC.run(orgId, code, name, seller, region).lastInsertRowid, name, w, size, seller }; };
+    const customers = KEY_CUSTOMERS.map(([name, w, size], i) => newCustomer(`C-${String(i + 1).padStart(4, '0')}`, name, w, size));
     const used = new Set(customers.map((c) => c.name));
     while (customers.length < 214) {
       const name = `${PREFIX[Math.floor(rand() * PREFIX.length)]} ${NAMES[Math.floor(rand() * NAMES.length)]}`;
       if (used.has(name)) continue;
       const full = name;
       used.add(full);
-      customers.push({ id: insC.run(orgId, `C-${String(customers.length + 1).padStart(4, '0')}`, full).lastInsertRowid, name: full, w: 1 + rand() * 5, size: 0.7 + rand() * 0.8 });
+      customers.push(newCustomer(`C-${String(customers.length + 1).padStart(4, '0')}`, full, 1 + rand() * 5, 0.7 + rand() * 0.8));
     }
     const byName = Object.fromEntries(customers.map((c) => [c.name, c]));
 
-    const insO = db.prepare('INSERT INTO orders (org_id, customer_id, date, total) VALUES (?, ?, ?, 0)');
+    const insO = db.prepare('INSERT INTO orders (org_id, customer_id, date, total, seller) VALUES (?, ?, ?, 0, ?)');
     const insI = db.prepare('INSERT INTO order_items (order_id, product_id, qty, unit_price, unit_cost) VALUES (?, ?, ?, ?, ?)');
     const updO = db.prepare('UPDATE orders SET total = ? WHERE id = ?');
     const monthlyRevenue = {};
@@ -111,7 +115,7 @@ export function generateDemoData(orgId, today = todayStr()) {
       for (let k = 0; k < nOrders; k++) {
         const c = pick(customers, 'w');
         if (rand() >= keep(c)) continue; // pedido que deixou de acontecer
-        const orderId = insO.run(orgId, c.id, day).lastInsertRowid;
+        const orderId = insO.run(orgId, c.id, day, c.seller).lastInsertRowid;
         const nItems = 4 + Math.floor(rand() * 8);
         const chosen = new Set();
         let total = 0;
@@ -156,6 +160,20 @@ export function generateDemoData(orgId, today = todayStr()) {
     const refTarget = Math.round(((monthlyRevenue[monthKey(REF)] || 0) * 1.09) / 1000) * 1000;
     insG.run(orgId, monthKey(today), Math.round(refTarget * 1.02 / 1000) * 1000);
     insG.run(orgId, monthKey(addMonths(today, 1)), Math.round(refTarget * 1.04 / 1000) * 1000);
+    // Metas por vendedor e por categoria: participação dos últimos 3 meses aplicada à meta do mês
+    const insGI = db.prepare('INSERT OR REPLACE INTO goal_items (org_id, month, dim, key, target) VALUES (?, ?, ?, ?, ?)');
+    const from3 = addMonths(REF, -2);
+    const shares = {
+      vendedor: db.prepare('SELECT seller k, SUM(total) v FROM orders WHERE org_id = ? AND date >= ? AND date <= ? GROUP BY seller').all(orgId, from3, refEnd),
+      categoria: db.prepare('SELECT p.category k, SUM(i.qty*i.unit_price) v FROM order_items i JOIN orders o ON o.id = i.order_id JOIN products p ON p.id = i.product_id WHERE o.org_id = ? AND o.date >= ? AND o.date <= ? GROUP BY p.category').all(orgId, from3, refEnd)
+    };
+    for (const m of [REF, monthStart(today)]) {
+      const target = db.prepare('SELECT revenue_target t FROM goals WHERE org_id = ? AND month = ?').get(orgId, monthKey(m))?.t || 0;
+      for (const [dim, rows] of Object.entries(shares)) {
+        const tot = rows.reduce((a, r) => a + r.v, 0) || 1;
+        for (const r of rows) if (r.k) insGI.run(orgId, monthKey(m), dim, r.k, Math.round((target * r.v / tot) / 500) * 500);
+      }
+    }
 
     // Contas a pagar e a receber
     const insB = db.prepare('INSERT INTO bills (org_id, kind, party, due_date, amount, paid_at) VALUES (?, ?, ?, ?, ?, ?)');

@@ -349,3 +349,62 @@ export function goalSeries(org, from, to) {
   const totalRevenue = r2(buckets.reduce((s, b) => s + b.revenue, 0)), totalGoal = Math.round(buckets.reduce((s, b) => s + b.goal, 0));
   return { from, to, unit, buckets, totalRevenue, totalGoal, achieved: totalGoal ? r2((totalRevenue / totalGoal) * 100) : null, hits: buckets.filter((b) => b.goal && b.revenue >= b.goal).length };
 }
+
+/* ---------------- Metas e previsão de fechamento ---------------- */
+const businessWeight = (d) => [0, 1, 1, 1, 1, 1, 0.3][new Date(d + 'T00:00:00Z').getUTCDay()];
+function weightBetween(from, to) { let w = 0; for (let d = from; d <= to; d = addDays(d, 1)) w += businessWeight(d); return w; }
+
+/** Previsão de fechamento do mês no ritmo atual (por dia útil; sábado conta 30%). */
+export function forecast(org, month = todayStr()) {
+  const today = todayStr();
+  const ms = monthStart(month), me = monthEnd(month);
+  const target = db.prepare('SELECT revenue_target FROM goals WHERE org_id = ? AND month = ?').get(org, monthKey(ms))?.revenue_target ?? null;
+  const rev = (a, b) => db.prepare('SELECT COALESCE(SUM(total),0) v FROM orders WHERE org_id = ? AND date BETWEEN ? AND ?').get(org, a, b).v;
+  const closed = me < today;
+  const realized = rev(ms, closed ? me : today);
+  const yesterday = addDays(today, -1);
+  const wDone = closed ? weightBetween(ms, me) : weightBetween(ms, yesterday < ms ? ms : yesterday);
+  const base = closed ? realized : rev(ms, yesterday < ms ? ms : yesterday);
+  const rate = wDone > 0 ? base / wDone : 0;
+  const projection = closed ? realized : realized + rate * weightBetween(addDays(today, 1), me);
+  const remainingTarget = target ? Math.max(0, target - realized) : null;
+  const daysLeft = closed ? 0 : weightBetween(addDays(today, 1), me);
+  return {
+    month: monthKey(ms), label: monthLabel(ms), closed, target, realized: r2(realized), projection: r2(projection),
+    projectionPct: target ? r2((projection / target) * 100) : null,
+    achievedPct: target ? r2((realized / target) * 100) : null,
+    currentPerDay: r2(rate), requiredPerDay: target && daysLeft ? r2(remainingTarget / daysLeft) : null,
+    businessDaysLeft: Math.round(daysLeft * 10) / 10, businessDaysTotal: Math.round(weightBetween(ms, me) * 10) / 10
+  };
+}
+
+export function goalsOverview(org) {
+  const today = todayStr();
+  const out = [];
+  for (let i = -6; i <= 5; i++) {
+    const m = addMonths(today, i);
+    const target = db.prepare('SELECT revenue_target FROM goals WHERE org_id = ? AND month = ?').get(org, monthKey(m))?.revenue_target ?? null;
+    const started = m <= today;
+    const realized = started ? db.prepare('SELECT COALESCE(SUM(total),0) v FROM orders WHERE org_id = ? AND date BETWEEN ? AND ?').get(org, m, monthEnd(m)).v : null;
+    const status = !started ? 'futuro' : monthEnd(m) < today ? 'fechado' : 'em andamento';
+    out.push({ month: monthKey(m), label: monthLabel(m), status, target, realized: realized === null ? null : r2(realized), pct: target && realized !== null ? r2((realized / target) * 100) : null });
+  }
+  return out;
+}
+
+export function goalItems(org, month, dim) {
+  const ms = `${month}-01`, me = monthEnd(ms);
+  const targets = Object.fromEntries(db.prepare('SELECT key, target FROM goal_items WHERE org_id = ? AND month = ? AND dim = ?').all(org, month, dim).map((r) => [r.key, r.target]));
+  const real = dim === 'vendedor'
+    ? db.prepare("SELECT COALESCE(seller, 'Sem vendedor') k, SUM(total) v, COUNT(DISTINCT customer_id) c FROM orders WHERE org_id = ? AND date BETWEEN ? AND ? GROUP BY k").all(org, ms, me)
+    : db.prepare('SELECT p.category k, SUM(i.qty*i.unit_price) v FROM order_items i JOIN orders o ON o.id = i.order_id JOIN products p ON p.id = i.product_id WHERE o.org_id = ? AND o.date BETWEEN ? AND ? GROUP BY p.category').all(org, ms, me);
+  const realMap = Object.fromEntries(real.map((r) => [r.k, r]));
+  let keys = [...new Set([...Object.keys(targets), ...real.map((r) => r.k)])];
+  if (dim === 'vendedor' && !keys.length) keys = db.prepare('SELECT DISTINCT seller k FROM customers WHERE org_id = ? AND seller IS NOT NULL').all(org).map((r) => r.k);
+  return keys.map((k) => ({ key: k, target: targets[k] ?? null, realized: r2(realMap[k]?.v || 0), customers: realMap[k]?.c, pct: targets[k] ? r2(((realMap[k]?.v || 0) / targets[k]) * 100) : null }))
+    .sort((a, b) => (b.target || b.realized) - (a.target || a.realized));
+}
+
+export function salesBySeller(org, from, to) {
+  return db.prepare("SELECT COALESCE(seller, 'Sem vendedor') seller, SUM(total) revenue, COUNT(*) orders FROM orders WHERE org_id = ? AND date BETWEEN ? AND ? GROUP BY seller ORDER BY revenue DESC").all(org, from, to).map((r) => ({ ...r, revenue: r2(r.revenue) }));
+}

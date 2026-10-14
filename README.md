@@ -2,7 +2,7 @@
 
 Dashboard empresarial que roda **no próprio computador** — com login por organização, indicadores financeiros e de vendas, modo TV para o escritório e um assistente de IA local (Ollama) que responde perguntas sobre os números da empresa.
 
-> Esta versão vem com uma empresa fictícia (Grupo Valmar) para testar. A importação de planilhas é a próxima etapa.
+> Começa com uma empresa fictícia (Grupo Valmar) para testar. Na primeira importação de planilha os dados de demonstração são substituídos pelos seus.
 
 ## Requisitos
 
@@ -41,6 +41,13 @@ ollama serve
 O modelo e o endereço podem ser trocados em **Configurações**. Sem o Ollama, as 7 perguntas frequentes continuam funcionando com respostas automáticas.
 
 **Como a IA funciona:** ela nunca faz contas. O modelo escolhe uma “ferramenta” (`comparar_periodos`, `top_produtos`, `clientes_em_queda`…), o Node calcula os números no SQLite e a IA só explica o resultado.
+
+## Seus dados
+
+- **Importação e backup › Importar planilha:** envie `.xlsx` ou `.csv` de vendas, despesas, contas a pagar/receber ou metas. O Cortex detecta o tipo, sugere o mapeamento das colunas, mostra as linhas com erro e só então importa. Baixe os modelos na mesma tela.
+- **Importação automática:** aponte uma pasta (por exemplo, onde o ERP exporta) e o Cortex importa sozinho os arquivos novos. Pedidos com o mesmo número não são duplicados.
+- **Backup:** automático todo dia (horário e pasta configuráveis — use um pendrive ou HD externo), manual em um clique e restauração pela mesma tela.
+- **Metas:** por mês, por vendedor e por categoria, com previsão de fechamento do mês no ritmo atual.
 
 ## Comandos
 

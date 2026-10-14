@@ -1,4 +1,8 @@
-// Insights automáticos, relatórios, agendamentos e o canal ao vivo da TV.
+// Insights automáticos, relatórios, agendamentos, pasta monitorada, backup e o canal ao vivo da TV.
+import fs from 'node:fs';
+import path from 'node:path';
+import { readFile, detectType, autoMap, validate, commit } from './importer.js';
+import { runBackup, listBackups } from './backup.js';
 import { db, getSettings, logEvent } from './db.js';
 import * as M from './metrics.js';
 import { QUESTIONS, answerIntent, brl, pct } from './answers.js';
@@ -156,10 +160,68 @@ function runSchedules(orgId) {
   }
 }
 
+/* ---------------- Pasta monitorada ---------------- */
+const lastScan = new Map();
+
+export async function scanWatchFolder(orgId, { force = false } = {}) {
+  const w = getSettings(orgId).import?.watch;
+  if (!w?.enabled || !w.path) return { skipped: true };
+  if (!force && Date.now() - (lastScan.get(orgId) || 0) < (w.intervalMin || 60) * 60e3) return { skipped: true };
+  lastScan.set(orgId, Date.now());
+  if (!fs.existsSync(w.path)) {
+    logEvent(orgId, null, 'import', `Pasta monitorada não encontrada: ${w.path}`, 'erro');
+    return { error: 'Pasta não encontrada.' };
+  }
+  const files = fs.readdirSync(w.path).filter((f) => /\.(csv|xlsx)$/i.test(f) && !f.startsWith('~$'));
+  const seen = db.prepare('SELECT 1 FROM imported_files WHERE org_id = ? AND path = ? AND mtime = ?');
+  const rec = db.prepare('INSERT OR IGNORE INTO imported_files (org_id, path, mtime, status, rows, message) VALUES (?, ?, ?, ?, ?, ?)');
+  const results = [];
+  for (const f of files.sort()) {
+    const full = path.join(w.path, f);
+    const mtime = Math.round(fs.statSync(full).mtimeMs);
+    if (seen.get(orgId, full, mtime)) continue;
+    try {
+      const parsed = await readFile(fs.readFileSync(full), f);
+      const type = detectType(parsed.headers);
+      const v = validate(type, parsed.rows, autoMap(type, parsed.headers));
+      if (v.missing.length) throw new Error(`Colunas obrigatórias não encontradas: ${v.missing.join(', ')}`);
+      if (!v.valid.length) throw new Error('Nenhuma linha válida.');
+      const r = commit(orgId, null, type, v.valid, { mode: 'append', filename: `Pasta monitorada · ${f}` });
+      rec.run(orgId, full, mtime, 'ok', r.inserted, v.errorCount ? `${v.errorCount} linha(s) com erro ignorada(s)` : null);
+      results.push({ file: f, type, ...r, errors: v.errorCount });
+    } catch (e) {
+      rec.run(orgId, full, mtime, 'erro', 0, e.message);
+      logEvent(orgId, null, 'import', `Pasta monitorada · ${f}: ${e.message}`, 'erro');
+      results.push({ file: f, error: e.message });
+    }
+  }
+  if (results.some((r) => r.inserted)) { refreshInsights(orgId, { force: true }).catch(() => {}); broadcast(orgId, 'insights', {}); }
+  return { results };
+}
+
+export function watchStatus(orgId) {
+  const rows = db.prepare('SELECT path, status, rows, message, created_at FROM imported_files WHERE org_id = ? ORDER BY id DESC LIMIT 8').all(orgId);
+  return { last: rows, lastScanAt: lastScan.get(orgId) ? new Date(lastScan.get(orgId)).toISOString() : null };
+}
+
+/* ---------------- Backup agendado ---------------- */
+async function runScheduledBackup(orgId) {
+  const b = getSettings(orgId).backup;
+  if (!b?.enabled || new Date().getHours() < (b.hour ?? 3)) return;
+  const today = new Date().toISOString().slice(0, 10);
+  if (listBackups(b.dir).some((x) => x.createdAt.slice(0, 10) === today && !x.file.includes('antes-de-restaurar'))) return;
+  try {
+    const r = await runBackup(b.dir, b.keep || 30);
+    logEvent(orgId, null, 'config', `Backup automático criado: ${r.file}`, 'ok');
+  } catch (e) {
+    logEvent(orgId, null, 'config', `Backup automático falhou: ${e.message}`, 'erro');
+  }
+}
+
 export function startScheduler() {
   const tick = async () => {
     for (const { id } of db.prepare('SELECT id FROM organizations').all()) {
-      try { runSchedules(id); await refreshInsights(id); } catch (e) { console.error('[agendador]', e.message); }
+      try { runSchedules(id); await scanWatchFolder(id); await runScheduledBackup(id); await refreshInsights(id); } catch (e) { console.error('[agendador]', e.message); }
     }
   };
   tick();
