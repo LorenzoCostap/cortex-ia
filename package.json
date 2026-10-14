@@ -1,0 +1,34 @@
+{
+  "name": "cortex-ia",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Dashboard empresarial local com IA (Ollama) — feito para rodar no PC e na TV do escritório.",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "dev": "concurrently -k -n api,web -c magenta,cyan \"node --watch server/index.js\" \"vite\"",
+    "build": "vite build",
+    "start": "node server/index.js",
+    "prestart": "node scripts/ensure-build.js",
+    "tv": "node scripts/open-tv.js",
+    "seed": "node server/seed.js --reset",
+    "org:create": "node server/cli.js create-org",
+    "test": "node --test test/*.test.js"
+  },
+  "dependencies": {
+    "better-sqlite3": "^12.4.1",
+    "express": "^4.21.2"
+  },
+  "devDependencies": {
+    "@fontsource-variable/geist": "^5.3.0",
+    "@fontsource-variable/geist-mono": "^5.3.0",
+    "@vitejs/plugin-react": "^4.4.1",
+    "concurrently": "^9.1.2",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "react-router-dom": "^6.28.0",
+    "vite": "^6.3.5"
+  }
+}
