@@ -83,3 +83,24 @@ export function periodLabel(v) {
   const p = PRESETS.find((x) => x.id === v.preset);
   return p ? `Últimos ${p.label.toLowerCase().replace('trimestre', '3 meses')}` : `${br(v.from)} a ${br(v.to)}`;
 }
+
+const KEY = 'cortex.dash.period';
+
+/**
+ * Período do gráfico Receita × meta. Ordem de prioridade:
+ * 1) o que foi escolhido no Dashboard neste navegador; 2) o padrão da organização (Configurações › Modo TV); 3) 12 meses.
+ * Os períodos prontos ("7 dias", "30 dias"…) são recalculados a cada dia, então a TV sempre mostra os dias mais recentes.
+ */
+export function loadSavedPeriod(today, fallback = '12m') {
+  try {
+    const v = JSON.parse(localStorage.getItem(KEY));
+    if (v?.preset === 'custom' && v.from && v.to) return v;
+    if (v?.preset && PRESETS.some((p) => p.id === v.preset)) return { preset: v.preset, ...presetRange(v.preset, today) };
+  } catch { /* ignora */ }
+  const id = PRESETS.some((p) => p.id === fallback) ? fallback : '12m';
+  return { preset: id, ...presetRange(id, today) };
+}
+
+export function savePeriod(v) {
+  try { localStorage.setItem(KEY, JSON.stringify(v)); } catch { /* ignora */ }
+}

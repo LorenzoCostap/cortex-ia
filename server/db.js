@@ -135,7 +135,7 @@ export const ROLES = ['admin', 'gestor', 'analista', 'visualizador'];
 
 export const DEFAULT_SETTINGS = {
   ai: { url: 'http://localhost:11434', model: 'qwen2.5:7b', autoInsights: true, showTools: true },
-  tv: { interval: 30, questionInterval: 10, screens: { overview: true, vendas: true, clientes: true, financeiro: false, insights: true }, hideMoney: false },
+  tv: { interval: 30, questionInterval: 10, goalPeriod: '12m', screens: { overview: true, vendas: true, clientes: true, financeiro: false, insights: true }, hideMoney: false },
   appearance: { theme: 'dark', animations: true },
   org: { currency: 'BRL', timezone: 'America/Sao_Paulo' },
   schedules: { weekly: { enabled: true, weekday: 1, hour: 8 }, monthly: { enabled: true, day: 1, hour: 9 } },

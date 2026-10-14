@@ -197,7 +197,7 @@ app.put('/api/settings', requirePerm('configuracoes'), (req, res) => {
   }
   const patch = {};
   if (ai) patch.ai = { url: String(ai.url || '').trim() || 'http://localhost:11434', model: String(ai.model || '').trim() || 'qwen2.5:7b', autoInsights: !!ai.autoInsights, showTools: !!ai.showTools };
-  if (tv) patch.tv = { interval: Math.min(300, Math.max(30, +tv.interval || 30)), questionInterval: Math.min(30, Math.max(5, +tv.questionInterval || 10)), screens: tv.screens, hideMoney: !!tv.hideMoney };
+  if (tv) patch.tv = { interval: Math.min(300, Math.max(30, +tv.interval || 30)), questionInterval: Math.min(30, Math.max(5, +tv.questionInterval || 10)), goalPeriod: ['7d', '30d', 'tri', '12m'].includes(tv.goalPeriod) ? tv.goalPeriod : '12m', screens: tv.screens, hideMoney: !!tv.hideMoney };
   if (appearance) patch.appearance = { theme: ['dark', 'light', 'system'].includes(appearance.theme) ? appearance.theme : 'dark', animations: !!appearance.animations };
   const s = saveSettings(org(req), patch);
   logEvent(org(req), req.user.id, 'config', 'Configurações da organização atualizadas');

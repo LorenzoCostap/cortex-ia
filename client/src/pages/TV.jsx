@@ -4,6 +4,7 @@ import { api } from '../api.js';
 import { useAuth } from '../auth.jsx';
 import { Icon, BrandMark, Spinner } from '../components/ui.jsx';
 import RevenueGoalChart from '../components/RevenueGoalChart.jsx';
+import { loadSavedPeriod, periodLabel } from '../components/PeriodPicker.jsx';
 import { brlK, num, delta, toneOf } from '../format.js';
 
 const W = 1920, H = 1080;
@@ -122,6 +123,24 @@ export default function TV() {
   }, []);
 
   const tv = data?.settings;
+
+  // Receita × meta: mesmo período escolhido no Dashboard (ou o padrão da organização)
+  const [goal, setGoal] = useState(null);
+  const goalPeriodSetting = tv?.goalPeriod;
+  useEffect(() => {
+    if (!tv) return undefined;
+    const fetchGoal = () => {
+      const n = new Date();
+      const today = `${n.getFullYear()}-${String(n.getMonth() + 1).padStart(2, '0')}-${String(n.getDate()).padStart(2, '0')}`;
+      const p = loadSavedPeriod(today, goalPeriodSetting);
+      api(`/goal-series?from=${p.from}&to=${p.to}`).then((g) => setGoal({ ...g, period: p })).catch(() => {});
+    };
+    fetchGoal();
+    const t = setInterval(fetchGoal, 5 * 60e3);
+    const onStorage = (e) => e.key === 'cortex.dash.period' && fetchGoal();
+    window.addEventListener('storage', onStorage);
+    return () => { clearInterval(t); window.removeEventListener('storage', onStorage); };
+  }, [tv, goalPeriodSetting, me.today]);
   const screens = useMemo(() => (tv ? Object.keys(SCREEN_LABEL).filter((k) => tv.screens[k]) : ['overview']), [tv]);
   const safeScreens = screens.length ? screens : ['overview'];
   const current = safeScreens[screen % safeScreens.length];
@@ -134,7 +153,8 @@ export default function TV() {
   const hide = !!tv?.hideMoney;
   const d = data?.dashboard;
   const insights = data?.insights || [];
-  const buckets = (d?.series || []).map((s) => ({ key: s.month, label: s.label, full: s.full, revenue: s.revenue, goal: s.goal || 0 }));
+  const buckets = goal?.buckets || (d?.series || []).map((s) => ({ key: s.month, label: s.label, full: s.full, revenue: s.revenue, goal: s.goal || 0 }));
+  const goalText = goal ? `${periodLabel(goal.period).toLowerCase()} · por ${goal.unit.replace('mes', 'mês')} · ${num(goal.achieved, 1)}% da meta` : 'últimos 12 meses';
 
   let content = null;
   if (d) {
@@ -155,7 +175,7 @@ export default function TV() {
         <section style={panel}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
             <h2 style={{ fontSize: 26, fontWeight: 600 }}>Receita × meta</h2>
-            <span style={{ fontSize: 18, color: '#8E8E99' }}>últimos 12 meses · traço branco = meta</span>
+            <span style={{ fontSize: 18, color: '#8E8E99' }}>{goalText} · traço branco = meta</span>
           </div>
           <div style={{ flex: 1, minHeight: 0 }}><RevenueGoalChart buckets={buckets} height={420} hideMoney={hide} big /></div>
         </section>

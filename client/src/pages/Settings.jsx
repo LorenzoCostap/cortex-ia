@@ -96,6 +96,12 @@ export default function Settings() {
             <span style={{ display: 'flex', justifyContent: 'space-between' }}>Tempo por pergunta no widget do Cortex<span className="mono" style={{ color: 'var(--text)' }}>{form.tv.questionInterval} s</span></span>
             <input type="range" min="5" max="30" step="1" value={form.tv.questionInterval} onChange={(e) => set('tv', 'questionInterval')(+e.target.value)} style={{ accentColor: 'var(--violet-h)' }} />
           </label>
+          <label className="field">Período padrão do gráfico Receita × meta
+            <select className="select" value={form.tv.goalPeriod || '12m'} onChange={(e) => set('tv', 'goalPeriod')(e.target.value)}>
+              <option value="7d">Últimos 7 dias</option><option value="30d">Últimos 30 dias</option><option value="tri">Últimos 3 meses</option><option value="12m">Últimos 12 meses</option>
+            </select>
+            <span className="dim" style={{ fontSize: 12, lineHeight: 1.5 }}>Num computador onde o Dashboard já foi aberto, a TV usa o período escolhido lá. Este padrão vale para TVs em outros aparelhos.</span>
+          </label>
           <fieldset style={{ margin: 0, padding: 0, border: 0 }}>
             <legend style={{ fontSize: 13, color: 'var(--text-2)', marginBottom: 8 }}>Telas na rotação</legend>
             {SCREENS.map(([k, label, note]) => (

@@ -4,24 +4,15 @@ import { api } from '../api.js';
 import { useAuth } from '../auth.jsx';
 import { PageHead } from '../components/Layout.jsx';
 import { Icon, Kpi, KpiSkeleton, CardSkeleton, ErrorBox, useAsync } from '../components/ui.jsx';
-import PeriodPicker, { presetRange, periodLabel } from '../components/PeriodPicker.jsx';
+import PeriodPicker, { periodLabel, loadSavedPeriod, savePeriod } from '../components/PeriodPicker.jsx';
 import RevenueGoalChart, { GoalLegend } from '../components/RevenueGoalChart.jsx';
 import { brl, brlK, delta, toneOf, num, initials } from '../format.js';
 
 const SEV = { alta: '#F87171', media: '#FBBF24', info: '#8B6CF0', pos: '#34D399' };
 
-function loadPeriod(today) {
-  try {
-    const v = JSON.parse(localStorage.getItem('cortex.dash.period'));
-    if (v?.preset === 'custom' && v.from && v.to) return v;
-    if (v?.preset) return { preset: v.preset, ...presetRange(v.preset, today) };
-  } catch { /* ignora */ }
-  return { preset: '12m', ...presetRange('12m', today) };
-}
-
-function GoalCard({ today }) {
-  const [period, setPeriodState] = useState(() => loadPeriod(today));
-  const setPeriod = (v) => { setPeriodState(v); try { localStorage.setItem('cortex.dash.period', JSON.stringify(v)); } catch { /* ignora */ } };
+function GoalCard({ today, fallback }) {
+  const [period, setPeriodState] = useState(() => loadSavedPeriod(today, fallback));
+  const setPeriod = (v) => { setPeriodState(v); savePeriod(v); };
   const g = useAsync(() => api(`/goal-series?from=${period.from}&to=${period.to}`), [period.from, period.to]);
   const unit = { dia: 'por dia', semana: 'por semana', mes: 'por mês' }[g.data?.unit] || '';
 
@@ -30,7 +21,7 @@ function GoalCard({ today }) {
       <div className="card-head">
         <div>
           <h2 id="goal-title" className="card-title">Receita × meta</h2>
-          <p className="card-sub">{periodLabel(period)} {unit && `· ${unit}`} · passe o mouse sobre as barras</p>
+          <p className="card-sub">{periodLabel(period)} {unit && `· ${unit}`} · passe o mouse sobre as barras · o modo TV usa este mesmo período</p>
         </div>
         {g.data && (
           <span className="badge" style={{ padding: '6px 12px', fontSize: 13 }}>
@@ -76,7 +67,7 @@ export default function Dashboard() {
       )}
 
       <div className="row">
-        <GoalCard today={me.today} />
+        <GoalCard today={me.today} fallback={me.tv?.goalPeriod} />
         <section className="card" aria-labelledby="ai-title" style={{ flex: '1 1 320px' }}>
           <div>
             <h2 id="ai-title" className="card-title"><Icon name="sparkle" size={16} color="var(--violet-text)" />Insights do Cortex</h2>
