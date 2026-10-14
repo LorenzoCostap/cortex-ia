@@ -316,6 +316,10 @@ export function goalSeries(org, from, to) {
   const span = daysBetween(from, to) + 1;
   const unit = span <= 31 ? 'dia' : span <= 190 ? 'semana' : 'mes';
   const revQ = db.prepare('SELECT date, SUM(total) v FROM orders WHERE org_id = ? AND date BETWEEN ? AND ? GROUP BY date').all(org, from, to);
+  // Despesas por dia: custo das mercadorias vendidas no dia + despesas operacionais do mês rateadas por dia
+  const cogs = Object.fromEntries(db.prepare('SELECT o.date, SUM(i.qty*i.unit_cost) v FROM order_items i JOIN orders o ON o.id = i.order_id WHERE o.org_id = ? AND o.date BETWEEN ? AND ? GROUP BY o.date').all(org, from, to).map((r) => [r.date, r.v]));
+  const opexMonth = {};
+  const opexDay = (d) => { const k = monthKey(d); if (opexMonth[k] === undefined) opexMonth[k] = operatingExpenses(org, monthStart(d), monthEnd(d)) / (daysBetween(monthStart(d), monthEnd(d)) + 1); return opexMonth[k]; };
   const rev = Object.fromEntries(revQ.map((r) => [r.date, r.v]));
   const goals = Object.fromEntries(db.prepare('SELECT month, revenue_target FROM goals WHERE org_id = ?').all(org).map((g) => [g.month, g.revenue_target]));
   // A meta do mês é distribuída pelos dias úteis (sábado conta 30%, domingo não conta).
@@ -335,16 +339,17 @@ export function goalSeries(org, from, to) {
     if (unit === 'dia') { key = d; label = brDate(d).slice(0, 5); full = brDate(d); }
     else if (unit === 'semana') { const w = weekRange(d); key = w.start; label = brDate(w.start).slice(0, 5); full = `Semana de ${brDate(w.start).slice(0, 5)} a ${brDate(w.end).slice(0, 5)}`; }
     else { key = monthKey(d); label = monthLabel(d, true); full = monthLabel(d); }
-    if (!cur || cur.key !== key) { cur = { key, label, full, revenue: 0, goal: 0, partial: false, from: d, to: d }; buckets.push(cur); }
+    if (!cur || cur.key !== key) { cur = { key, label, full, revenue: 0, expenses: 0, goal: 0, partial: false, from: d, to: d }; buckets.push(cur); }
     cur.to = d;
     cur.revenue += rev[d] || 0;
+    if (d <= todayStr()) cur.expenses += (cogs[d] || 0) + opexDay(d);
     cur.goal += dayGoal(d);
   }
   for (const b of buckets) {
     if (unit !== 'dia' && b.to >= today) b.partial = true;
     b.weekend = unit === 'dia' && wDay(b.from) === 0;
     // Mês/semana cortados pelo filtro: a meta acompanha só os dias dentro do filtro.
-    b.revenue = r2(b.revenue); b.goal = Math.round(b.goal);
+    b.revenue = r2(b.revenue); b.expenses = r2(b.expenses); b.profit = r2(b.revenue - b.expenses); b.goal = Math.round(b.goal);
   }
   const totalRevenue = r2(buckets.reduce((s, b) => s + b.revenue, 0)), totalGoal = Math.round(buckets.reduce((s, b) => s + b.goal, 0));
   return { from, to, unit, buckets, totalRevenue, totalGoal, achieved: totalGoal ? r2((totalRevenue / totalGoal) * 100) : null, hits: buckets.filter((b) => b.goal && b.revenue >= b.goal).length };

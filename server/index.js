@@ -127,10 +127,14 @@ app.get('/api/tv/stream', requireAuth, (req, res) => {
 app.get('/api/tv/data', requireAuth, (req, res) => {
   const o = org(req);
   const r = refMonth(), from = monthStart(r), to = monthEnd(r);
+  const insights = getInsights(o);
+  if (!insights.length) refreshInsights(o).catch(() => {});
   res.json({
-    dashboard: M.dashboard(o, r), insights: getInsights(o), settings: getSettings(o).tv,
+    dashboard: M.dashboard(o, r), insights, settings: getSettings(o).tv,
     categories: M.categoryBreakdown(o, from, to), topCustomers: M.customersDeclining(o, from, to, 5),
-    expenses: M.expensesByCategory(o, from, to), receivables: M.bills(o, 'receber', { days: 15 }).slice(0, 6), payables: M.bills(o, 'pagar', { days: 15 }).slice(0, 6)
+    expenses: M.expensesByCategory(o, from, to), receivables: M.bills(o, 'receber', { days: 15 }).slice(0, 6), payables: M.bills(o, 'pagar', { days: 15 }).slice(0, 6),
+    payables7: M.bills(o, 'pagar', { days: 7 }).reduce((s, b) => s + b.amount, 0),
+    forecast: M.forecast(o), targets: getSettings(o).targets
   });
 });
 

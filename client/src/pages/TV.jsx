@@ -3,8 +3,8 @@ import { Link } from 'react-router-dom';
 import { api } from '../api.js';
 import { useAuth } from '../auth.jsx';
 import { Icon, BrandMark, Spinner } from '../components/ui.jsx';
-import RevenueGoalChart from '../components/RevenueGoalChart.jsx';
 import { loadSavedPeriod, periodLabel } from '../components/PeriodPicker.jsx';
+import TVFinance from '../components/TVFinance.jsx';
 import { brlK, num, delta, toneOf } from '../format.js';
 
 const W = 1920, H = 1080;
@@ -29,7 +29,7 @@ function useClock() {
 
 const panel = { padding: 36, borderRadius: 20, background: '#17171B', border: '1px solid #24242B', display: 'flex', flexDirection: 'column', gap: 24, minWidth: 0, minHeight: 0 };
 
-function CortexWidget({ insights, seconds, push }) {
+function CortexWidget({ insights, seconds, push, compact = false }) {
   const [i, setI] = useState(0);
   useEffect(() => { setI(0); }, [insights.length]);
   useEffect(() => {
@@ -39,9 +39,9 @@ function CortexWidget({ insights, seconds, push }) {
   }, [insights.length, seconds, push]);
   const item = push ? { question: push.question, answer: push.answer, rows: push.rows || [] } : insights[i];
   return (
-    <section style={{ ...panel, background: '#19162A', border: '1px solid #3A3158' }}>
+    <section style={{ ...panel, background: '#19162A', border: '1px solid #3A3158', ...(compact ? { padding: '18px 24px', gap: 12, borderRadius: 16 } : {}) }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-        <h2 style={{ margin: 0, fontSize: 26, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 12 }}><Icon name="sparkle" size={26} color="#B9A3FF" />Cortex AI</h2>
+        <h2 style={{ margin: 0, fontSize: compact ? 22 : 26, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 12 }}><Icon name="sparkle" size={compact ? 22 : 26} color="#B9A3FF" />Cortex AI</h2>
         <span style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 16, color: '#D6C9FF' }}>
           <span style={{ width: 10, height: 10, borderRadius: '50%', background: push ? '#34D399' : '#A78BFA', animation: 'glow 2s ease-in-out infinite' }} />
           {push ? `Enviado por ${push.by}` : insights.length ? `Pergunta ${i + 1} de ${insights.length}` : 'Preparando'}
@@ -49,10 +49,10 @@ function CortexWidget({ insights, seconds, push }) {
       </div>
       {!item ? <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Spinner size={32} /></div> : (
         <div key={push ? push.at : i} style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', gap: 22, animation: 'rise .6s ease both' }}>
-          <p style={{ fontSize: 24, color: '#C9C9D1', lineHeight: 1.4 }}>“{item.question}”</p>
-          <p style={{ fontSize: push ? 25 : 28, lineHeight: 1.45, fontWeight: 500, overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: push ? 8 : 6, WebkitBoxOrient: 'vertical', whiteSpace: 'pre-line' }}>{item.answer}</p>
-          <div style={{ marginTop: 'auto', display: 'flex', flexDirection: 'column', gap: 14, fontSize: 20 }}>
-            {item.rows.slice(0, 3).map((r) => <span key={r.label} style={{ display: 'flex', justifyContent: 'space-between', gap: 16 }}><span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.label}</span><span style={{ fontFamily: 'var(--mono)', whiteSpace: 'nowrap', color: TONE[r.tone] || TONE.neutral }}>{r.value}</span></span>)}
+          <p style={{ fontSize: compact ? 18 : 24, color: '#C9C9D1', lineHeight: 1.4 }}>“{item.question}”</p>
+          <p style={{ fontSize: compact ? (push ? 19 : 21) : (push ? 25 : 28), lineHeight: 1.4, fontWeight: 500, overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: compact ? 2 : push ? 8 : 6, flexShrink: 0, WebkitBoxOrient: 'vertical', whiteSpace: 'pre-line' }}>{item.answer}</p>
+          <div style={{ marginTop: 'auto', display: 'flex', flexDirection: 'column', gap: compact ? 8 : 14, fontSize: compact ? 17 : 20 }}>
+            {item.rows.slice(0, compact ? 2 : 3).map((r) => <span key={r.label} style={{ display: 'flex', justifyContent: 'space-between', gap: 16 }}><span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.label}</span><span style={{ fontFamily: 'var(--mono)', whiteSpace: 'nowrap', color: TONE[r.tone] || TONE.neutral }}>{r.value}</span></span>)}
           </div>
         </div>
       )}
@@ -154,7 +154,6 @@ export default function TV() {
   const d = data?.dashboard;
   const insights = data?.insights || [];
   const buckets = goal?.buckets || (d?.series || []).map((s) => ({ key: s.month, label: s.label, full: s.full, revenue: s.revenue, goal: s.goal || 0 }));
-  const goalText = goal ? `${periodLabel(goal.period).toLowerCase()} · por ${goal.unit.replace('mes', 'mês')} · ${num(goal.achieved, 1)}% da meta` : 'últimos 12 meses';
 
   let content = null;
   if (d) {
@@ -171,15 +170,8 @@ export default function TV() {
     const two = (left) => <div style={{ flex: 1, minHeight: 0, display: 'grid', gridTemplateColumns: 'minmax(0, 1.6fr) minmax(0, 1fr)', gap: 24 }}>{left}{widget}</div>;
 
     if (current === 'overview') {
-      content = <>{kpis}{two(
-        <section style={panel}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
-            <h2 style={{ fontSize: 26, fontWeight: 600 }}>Receita × meta</h2>
-            <span style={{ fontSize: 18, color: '#8E8E99' }}>{goalText} · traço branco = meta</span>
-          </div>
-          <div style={{ flex: 1, minHeight: 0 }}><RevenueGoalChart buckets={buckets} height={420} hideMoney={hide} big /></div>
-        </section>
-      )}</>;
+      const periodText = goal ? `${periodLabel(goal.period).toLowerCase()} · por ${goal.unit.replace('mes', 'mês')}` : 'últimos 12 meses · por mês';
+      content = <TVFinance data={data} goal={goal} periodText={periodText} hide={hide} widget={<CortexWidget insights={insights} seconds={tv.questionInterval || 10} push={push} compact />} />;
     } else if (current === 'vendas') {
       content = <>{kpis}{two(
         <section style={{ ...panel, display: 'grid', gridTemplateColumns: '1.2fr 1fr', gap: 48 }}>
@@ -237,12 +229,12 @@ export default function TV() {
 
   return (
     <div style={{ position: 'fixed', inset: 0, background: '#0E0E10', overflow: 'hidden', cursor: 'none' }} onMouseMove={(e) => { e.currentTarget.style.cursor = 'default'; }}>
-      <div style={{ width: W, height: H, transform: `scale(${scale})`, transformOrigin: 'top left', position: 'absolute', left: (window.innerWidth - W * scale) / 2, top: (window.innerHeight - H * scale) / 2, padding: '56px 72px', boxSizing: 'border-box', color: '#ECECF1', display: 'flex', flexDirection: 'column', gap: 36 }}>
+      <div style={{ width: W, height: H, transform: `scale(${scale})`, transformOrigin: 'top left', position: 'absolute', left: (window.innerWidth - W * scale) / 2, top: (window.innerHeight - H * scale) / 2, padding: '36px 48px 40px', boxSizing: 'border-box', color: '#ECECF1', display: 'flex', flexDirection: 'column', gap: 20 }}>
         <header style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 20 }}>
-            <BrandMark size={52} />
+            <BrandMark size={48} />
             <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-              <span style={{ fontSize: 30, fontWeight: 600 }}>{me.org.name}</span>
+              <span style={{ fontSize: 28, fontWeight: 600 }}>{me.org.name}</span>
               <span style={{ fontSize: 20, color: '#A6A6B0' }}>{SCREEN_LABEL[current]}{d && current !== 'insights' ? ` · ${d.label}` : ''}</span>
             </div>
           </div>
@@ -253,7 +245,7 @@ export default function TV() {
                 : <span key={s} style={{ width: 20, height: 6, borderRadius: 3, background: '#2A2A32' }} />)}
             </div>
             <div style={{ textAlign: 'right', display: 'flex', flexDirection: 'column', gap: 2 }}>
-              <span style={{ fontFamily: 'var(--mono)', fontSize: 44, fontWeight: 500 }}>{now.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</span>
+              <span style={{ fontFamily: 'var(--mono)', fontSize: 38, fontWeight: 500 }}>{now.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</span>
               <span style={{ fontSize: 18, color: '#A6A6B0' }}>{now.toLocaleDateString('pt-BR', { weekday: 'long', day: 'numeric', month: 'long' })}</span>
             </div>
             <div style={{ display: 'flex', gap: 10 }}>
