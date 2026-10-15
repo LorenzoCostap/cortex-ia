@@ -83,10 +83,25 @@ export function monthlySeries(org, endMonth, n = 12) {
   return out;
 }
 
+// Cache das somas por produto: invalida sozinho quando entram/saem pedidos (importação, demonstração recriada).
+const productCache = new Map();
+function dataStamp(org) {
+  const r = db.prepare('SELECT COUNT(*) n, MAX(id) m FROM orders WHERE org_id = ?').get(org);
+  return `${r.n}:${r.m}`;
+}
 function productRows(org, from, to) {
+  const key = `${org}|${from}|${to}`, stamp = dataStamp(org);
+  const hit = productCache.get(key);
+  if (hit && hit.stamp === stamp) return hit.rows.map((r) => ({ ...r }));
+  const rows = productRowsRaw(org, from, to);
+  if (productCache.size > 200) productCache.clear();
+  productCache.set(key, { stamp, rows });
+  return rows.map((r) => ({ ...r }));
+}
+function productRowsRaw(org, from, to) {
   return db.prepare(`
     SELECT p.id, p.name, p.category, SUM(i.qty) qty, SUM(i.qty*i.unit_price) revenue, SUM(i.qty*i.unit_cost) cost
-    FROM order_items i JOIN orders o ON o.id = i.order_id JOIN products p ON p.id = i.product_id
+    FROM orders o CROSS JOIN order_items i ON i.order_id = o.id JOIN products p ON p.id = i.product_id
     WHERE o.org_id = ? AND o.date BETWEEN ? AND ? GROUP BY p.id`).all(org, from, to);
 }
 
@@ -112,6 +127,14 @@ export function productTable(org, from, to, cmp) {
 
 export function topProducts(org, from, to, limit = 5) {
   return productTable(org, from, to).slice(0, limit);
+}
+
+/** Receita por categoria a partir da tabela de produtos já calculada (evita somar os itens duas vezes). */
+function categoriesFrom(products) {
+  const by = {};
+  for (const p of products) by[p.category || 'Sem categoria'] = (by[p.category || 'Sem categoria'] || 0) + p.revenue;
+  const total = Object.values(by).reduce((a, b) => a + b, 0);
+  return Object.entries(by).sort((a, b) => b[1] - a[1]).map(([category, revenue]) => ({ category, revenue: r2(revenue), share: total ? r2((revenue / total) * 100) : 0 }));
 }
 
 export function categoryBreakdown(org, from, to) {
@@ -190,24 +213,28 @@ function productDiff(org, a, b) {
 
 export function stockouts(org, from, to) {
   // Produtos com 5+ dias úteis seguidos sem nenhuma venda dentro do período.
-  const prods = db.prepare('SELECT id, name, price FROM products WHERE org_id = ?').all(org);
-  const q = db.prepare('SELECT DISTINCT o.date FROM order_items i JOIN orders o ON o.id = i.order_id WHERE o.org_id = ? AND i.product_id = ? AND o.date BETWEEN ? AND ?');
-  const avgQ = db.prepare('SELECT SUM(i.qty*i.unit_price) v FROM order_items i JOIN orders o ON o.id = i.order_id WHERE o.org_id = ? AND i.product_id = ? AND o.date BETWEEN ? AND ?');
-  const out = [];
-  for (const p of prods) {
-    const sold = new Set(q.all(org, p.id, from, to).map((r) => r.date));
+  // Uma consulta agrupada por produto/dia (em vez de uma por produto) — rápido mesmo com milhões de itens.
+  const names = Object.fromEntries(db.prepare('SELECT id, name FROM products WHERE org_id = ?').all(org).map((p) => [p.id, p.name]));
+  const soldDays = {};
+  for (const r of db.prepare('SELECT i.product_id pid, o.date FROM orders o CROSS JOIN order_items i ON i.order_id = o.id WHERE o.org_id = ? AND o.date BETWEEN ? AND ? GROUP BY i.product_id, o.date').all(org, from, to)) {
+    (soldDays[r.pid] ||= new Set()).add(r.date);
+  }
+  const days = [];
+  for (let d = from; d <= to; d = addDays(d, 1)) if (new Date(d + 'T00:00:00Z').getUTCDay() !== 0) days.push(d);
+  const found = [];
+  for (const [pid, sold] of Object.entries(soldDays)) {
     let run = 0, best = 0, start = null, bestStart = null, bestEnd = null;
-    for (let d = from; d <= to; d = addDays(d, 1)) {
-      if (new Date(d + 'T00:00:00Z').getUTCDay() === 0) continue;
+    for (const d of days) {
       if (sold.has(d)) { run = 0; start = null; } else { if (!run) start = d; run++; if (run > best) { best = run; bestStart = start; bestEnd = d; } }
     }
-    if (best >= 5 && sold.size > 0) {
-      const prev = previousPeriod(from, to);
-      const prevDaily = (avgQ.get(org, p.id, prev.from, prev.to).v || 0) / 26;
-      out.push({ name: p.name, from: bestStart, to: bestEnd, days: best, estimatedLoss: r2(prevDaily * best) });
-    }
+    if (best >= 5) found.push({ pid: +pid, from: bestStart, to: bestEnd, days: best });
   }
-  return out.sort((a, b) => b.estimatedLoss - a.estimatedLoss);
+  if (!found.length) return [];
+  const prev = previousPeriod(from, to);
+  const prevRev = Object.fromEntries(db.prepare(`SELECT i.product_id pid, SUM(i.qty*i.unit_price) v FROM orders o CROSS JOIN order_items i ON i.order_id = o.id
+    WHERE o.org_id = ? AND o.date BETWEEN ? AND ? AND i.product_id IN (${found.map(() => '?').join(',')}) GROUP BY i.product_id`).all(org, prev.from, prev.to, ...found.map((f) => f.pid)).map((r) => [r.pid, r.v]));
+  return found.map((f) => ({ name: names[f.pid], from: f.from, to: f.to, days: f.days, estimatedLoss: r2(((prevRev[f.pid] || 0) / 26) * f.days) }))
+    .sort((a, b) => b.estimatedLoss - a.estimatedLoss);
 }
 
 export function comparePeriods(org, a, b) {
@@ -316,8 +343,9 @@ export function dashboard(org, month, cmp) {
 
 export function salesView(org, from, to, cmp) {
   const prev = comparisonPeriod(from, to, cmp);
+  const products = productTable(org, from, to, cmp);
   const cur = periodSummary(org, from, to), before = periodSummary(org, prev.from, prev.to);
-  return { from, to, previous: prev, kpis: cur, before, deltas: withDeltas(cur, before), cmp: cmp === 'ano' ? 'ano' : 'anterior', daily: dailySeries(org, from, to, cmp), categories: categoryBreakdown(org, from, to), products: productTable(org, from, to, cmp), customers: customerTable(org, from, to, prev) };
+  return { from, to, previous: prev, kpis: cur, before, deltas: withDeltas(cur, before), cmp: cmp === 'ano' ? 'ano' : 'anterior', daily: dailySeries(org, from, to, cmp), categories: categoriesFrom(products), products, customers: customerTable(org, from, to, prev) };
 }
 
 /**

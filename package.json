@@ -15,6 +15,7 @@
     "tv": "node scripts/open-tv.js",
     "seed": "node server/seed.js --reset",
     "org:create": "node server/cli.js create-org",
+    "benchmark": "node scripts/benchmark.js",
     "test": "node --test test/*.test.js"
   },
   "dependencies": {

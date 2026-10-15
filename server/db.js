@@ -184,6 +184,10 @@ CREATE INDEX IF NOT EXISTS idx_orders_customer_date ON orders(customer_id, date)
 CREATE INDEX IF NOT EXISTS idx_items_product ON order_items(product_id);
 CREATE INDEX IF NOT EXISTS idx_bills_org_kind ON bills(org_id, kind, paid_at, due_date);
 CREATE INDEX IF NOT EXISTS idx_customers_org ON customers(org_id);
+CREATE INDEX IF NOT EXISTS idx_orders_customer_date ON orders(customer_id, date);
+CREATE INDEX IF NOT EXISTS idx_items_product ON order_items(product_id);
+CREATE INDEX IF NOT EXISTS idx_bills_org_kind ON bills(org_id, kind, paid_at, due_date);
+CREATE INDEX IF NOT EXISTS idx_customers_org ON customers(org_id);
 `);
 
 export const MODULES = ['dashboard', 'assistente', 'vendas', 'equipe', 'metas', 'fluxo', 'alertas', 'avisos', 'importacao', 'relatorios', 'historico', 'configuracoes', 'administracao'];
