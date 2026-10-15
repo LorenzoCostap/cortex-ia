@@ -34,7 +34,7 @@ const org = (req) => req.user.org_id;
 app.get('/api/public/org', (req, res) => {
   const o = db.prepare('SELECT name, segment FROM organizations WHERE slug = ?').get(String(req.query.slug || '').toLowerCase().trim());
   if (!o) return res.status(404).json({ error: 'Organização não encontrada.' });
-  res.json(o);
+  res.json({ ...o, aiEnabled: getSettings(db.prepare('SELECT id FROM organizations WHERE slug = ?').get(String(req.query.slug || '').toLowerCase().trim()).id).ai.enabled !== false });
 });
 
 app.post('/api/auth/login', (req, res) => {
@@ -60,7 +60,7 @@ app.get('/api/auth/me', requireAuth, (req, res) => {
   res.json({
     user: { id: req.user.id, name: req.user.name, email: req.user.email, role: req.user.role, mustChangePassword: !!req.user.must_change_password },
     org: { slug: req.user.org_slug, name: req.user.org_name, segment: req.user.org_segment, isDemo: !!req.user.is_demo },
-    permissions, tv: s.tv, appearance: s.appearance, showTools: s.ai.showTools, today: todayStr(), refMonth: refMonth()
+    permissions, tv: s.tv, appearance: s.appearance, showTools: s.ai.showTools, today: todayStr(), refMonth: refMonth(), aiEnabled: s.ai.enabled !== false
   });
 });
 
@@ -145,7 +145,7 @@ app.get('/api/tv/data', requireAuth, (req, res) => {
     categories: M.categoryBreakdown(o, from, to), topCustomers: M.customersDeclining(o, from, to, 5),
     expenses: M.expensesByCategory(o, from, to), receivables: M.bills(o, 'receber', { days: 15 }).slice(0, 6), payables: M.bills(o, 'pagar', { days: 15 }).slice(0, 6),
     payables7: M.bills(o, 'pagar', { days: 7 }).reduce((s, b) => s + b.amount, 0),
-    forecast: M.forecast(o), targets: getSettings(o).targets, ranking: teamView(o),
+    forecast: M.forecast(o), targets: getSettings(o).targets, ranking: teamView(o), aiEnabled: getSettings(o).ai.enabled !== false,
     cashflow: (() => { const c = cashflow(o, 90); return c.hasBalance ? { balance: c.balance, minimum: c.minimum, endBalance: c.endBalance, minBalance: c.minBalance, firstBelow: c.firstBelow, weeks: c.weeks.map((w) => ({ label: w.label, balance: w.balance })) } : null; })()
   });
 });
@@ -221,7 +221,7 @@ app.put('/api/settings', requirePerm('configuracoes'), (req, res) => {
     db.prepare('UPDATE organizations SET slug = ?, name = ?, segment = ?, cnpj = ? WHERE id = ?').run(slug, String(o.name).trim(), o.segment || null, o.cnpj || null, org(req));
   }
   const patch = {};
-  if (ai) patch.ai = { url: String(ai.url || '').trim() || 'http://localhost:11434', model: String(ai.model || '').trim() || 'qwen2.5:7b', autoInsights: !!ai.autoInsights, showTools: !!ai.showTools };
+  if (ai) patch.ai = { enabled: ai.enabled !== false, url: String(ai.url || '').trim() || 'http://localhost:11434', model: String(ai.model || '').trim() || 'qwen2.5:7b', autoInsights: !!ai.autoInsights, showTools: !!ai.showTools };
   if (tv) patch.tv = { interval: Math.min(300, Math.max(30, +tv.interval || 30)), questionInterval: Math.min(30, Math.max(5, +tv.questionInterval || 10)), goalPeriod: ['7d', '30d', 'tri', '12m'].includes(tv.goalPeriod) ? tv.goalPeriod : '12m', screens: tv.screens, hideMoney: !!tv.hideMoney, devices: cleanDevices(tv.devices) };
   const imp = req.body?.import, bk = req.body?.backup;
   if (imp?.watch) patch.import = { watch: { enabled: !!imp.watch.enabled, path: String(imp.watch.path || '').trim(), intervalMin: [15, 30, 60, 180, 720, 1440].includes(+imp.watch.intervalMin) ? +imp.watch.intervalMin : 60 } };
@@ -235,6 +235,7 @@ app.put('/api/settings', requirePerm('configuracoes'), (req, res) => {
 
 app.post('/api/settings/test-ai', requirePerm('configuracoes'), wrap(async (req, res) => {
   const ai = { ...getSettings(org(req)).ai, ...(req.body || {}) };
+  if (ai.enabled === false) return res.status(400).json({ error: 'A IA está desligada nesta organização.' });
   const st = await ollamaStatus(ai);
   if (!st.online) return res.json(st);
   if (!st.hasModel) return res.json({ ...st, error: `O modelo "${ai.model}" não está instalado. Rode: ollama pull ${ai.model}` });

@@ -2,6 +2,7 @@
 // a IA escolhe qual função de métricas chamar, o Node calcula, e a IA só explica o resultado.
 import * as M from './metrics.js';
 import { cashflow } from './cashflow.js';
+import { teamView } from './team.js';
 import { chartFromTool, chartForIntent } from './charts.js';
 import { todayStr, refMonth, monthEnd, addMonths, monthStart, monthLabel, isIso, weekRange, addDays } from './dates.js';
 import { answerIntent, detectIntent, helpAnswer } from './answers.js';
@@ -19,6 +20,8 @@ async function fetchJson(url, body, timeoutMs) {
 }
 
 export async function ollamaStatus(ai) {
+  // IA desligada na organização: nenhuma conexão com o Ollama.
+  if (ai.enabled === false) return { online: false, disabled: true, models: [], hasModel: false, model: ai.model };
   const started = Date.now();
   try {
     const tags = await fetchJson(`${ai.url.replace(/\/$/, '')}/api/tags`, null, 2500);
@@ -52,6 +55,7 @@ export const TOOLS = [
   fn('indicadores_atencao', 'Lista de alertas atuais: contas vencidas, clientes parados, produtos em queda, meta em risco, margem.'),
   fn('contas', 'Contas a pagar ou a receber em aberto (vencidas e a vencer).', { tipo: { type: 'string', enum: ['pagar', 'receber'] }, dias: { type: 'integer', description: 'Janela de vencimento em dias (padrão 30)' } }, ['tipo']),
   fn('meta_do_mes', 'Progresso da meta de faturamento do mês atual (em andamento).'),
+  fn('equipe', 'Vendas por vendedor contra a meta individual, regiões e destaques da semana. Mês no formato AAAA-MM (padrão: mês atual).', { mes: { type: 'string', description: 'AAAA-MM' } }),
   fn('fluxo_de_caixa', 'Saldo de caixa projetado para os próximos 30, 60 ou 90 dias: entradas, saídas, menor saldo e quando fica abaixo do mínimo.', { dias: { type: 'integer', enum: [30, 60, 90] } })
 ];
 
@@ -75,6 +79,7 @@ function runTool(org, name, args = {}) {
     case 'indicadores_atencao': return M.attentionIndicators(org);
     case 'contas': return M.bills(org, args.tipo === 'receber' ? 'receber' : 'pagar', { days: Math.min(+args.dias || 30, 365) });
     case 'meta_do_mes': return M.goalProgress(org);
+    case 'equipe': return teamView(org, /^\d{4}-\d{2}$/.test(args.mes || '') ? `${args.mes}-01` : undefined);
     case 'fluxo_de_caixa': { const c = cashflow(org, args.dias || 90); return { ...c, moves: c.moves.filter((m) => !m.estimate).slice(0, 15) }; }
     default: return { erro: `Ferramenta desconhecida: ${name}` };
   }
@@ -110,10 +115,10 @@ export async function ask({ org, orgName, ai, question, history = [] }, onEvent 
 
   if (!status.online || !status.hasModel) {
     const intent = detectIntent(question);
-    onEvent({ type: 'step', text: status.online ? `Modelo ${ai.model} não encontrado — usando respostas automáticas` : 'IA local offline — usando respostas automáticas' });
-    const res = intent ? answerIntent(org, intent) : helpAnswer();
+    onEvent({ type: 'step', text: status.disabled ? 'Consultando os números' : status.online ? `Modelo ${ai.model} não encontrado — usando respostas automáticas` : 'IA local offline — usando respostas automáticas' });
+    const res = intent ? answerIntent(org, intent) : helpAnswer(!status.disabled);
     for (const t of res.tools) onEvent({ type: 'tool', name: t });
-    return { answer: res.answer, tools: res.tools, rows: res.rows, chart: intent ? chartForIntent(org, intent) : null, mode: 'automatico', notice: status.online ? `O modelo "${ai.model}" não está instalado. Rode: ollama pull ${ai.model}` : 'O Ollama não está rodando. Inicie com: ollama serve' };
+    return { answer: res.answer, tools: res.tools, rows: res.rows, chart: intent ? chartForIntent(org, intent) : null, mode: 'automatico', notice: status.disabled ? null : status.online ? `O modelo "${ai.model}" não está instalado. Rode: ollama pull ${ai.model}` : 'O Ollama não está aberto. Instale em ollama.com/download e deixe-o rodando (no Linux/macOS: ollama serve).' };
   }
 
   const messages = [{ role: 'system', content: systemPrompt(orgName) }, ...history.slice(-6), { role: 'user', content: question }];

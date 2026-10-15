@@ -180,13 +180,17 @@ CREATE TABLE IF NOT EXISTS imported_files (
   UNIQUE(org_id, path, mtime)
 );
 CREATE INDEX IF NOT EXISTS idx_orders_seller ON orders(org_id, seller);
+CREATE INDEX IF NOT EXISTS idx_orders_customer_date ON orders(customer_id, date);
+CREATE INDEX IF NOT EXISTS idx_items_product ON order_items(product_id);
+CREATE INDEX IF NOT EXISTS idx_bills_org_kind ON bills(org_id, kind, paid_at, due_date);
+CREATE INDEX IF NOT EXISTS idx_customers_org ON customers(org_id);
 `);
 
 export const MODULES = ['dashboard', 'assistente', 'vendas', 'equipe', 'metas', 'fluxo', 'alertas', 'avisos', 'importacao', 'relatorios', 'historico', 'configuracoes', 'administracao'];
 export const ROLES = ['admin', 'gestor', 'analista', 'visualizador'];
 
 export const DEFAULT_SETTINGS = {
-  ai: { url: 'http://localhost:11434', model: 'qwen2.5:7b', autoInsights: true, showTools: true },
+  ai: { enabled: true, url: 'http://localhost:11434', model: 'qwen2.5:7b', autoInsights: true, showTools: true },
   tv: { interval: 30, questionInterval: 10, goalPeriod: '12m', screens: { overview: true, ranking: true, vendas: true, clientes: true, financeiro: false, insights: true }, hideMoney: false, devices: [], notice: null },
   appearance: { theme: 'dark', animations: true },
   targets: { netMargin: 18 },

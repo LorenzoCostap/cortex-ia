@@ -10,6 +10,7 @@ export default function Login() {
   const [params] = useSearchParams();
   const [form, setForm] = useState({ org: localStorage.getItem('cortex.org') || '', email: '', password: '', remember: true });
   const [orgName, setOrgName] = useState('');
+  const [aiOn, setAiOn] = useState(true);
   const [showPw, setShowPw] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -17,7 +18,7 @@ export default function Login() {
 
   const checkOrg = async () => {
     if (!form.org.trim()) return setOrgName('');
-    try { setOrgName((await api(`/public/org?slug=${encodeURIComponent(form.org)}`)).name); } catch { setOrgName(''); }
+    try { const o = await api(`/public/org?slug=${encodeURIComponent(form.org)}`); setOrgName(o.name); setAiOn(o.aiEnabled !== false); } catch { setOrgName(''); }
   };
 
   const submit = async (e) => {
@@ -53,7 +54,7 @@ export default function Login() {
           <p style={{ fontSize: 17, lineHeight: 1.6 }} className="muted">Indicadores financeiros, vendas e clientes — e um assistente que explica o que os números querem dizer.</p>
           <ul className="login-extra" style={{ margin: '8px 0 0', padding: 0, listStyle: 'none', display: 'flex', flexDirection: 'column', gap: 14, fontSize: 15, color: 'var(--text-2)' }}>
             <li style={{ display: 'flex', gap: 12, alignItems: 'center' }}><Icon name="shield" color="var(--violet-text)" />Roda no seu computador — nenhum dado sai da empresa</li>
-            <li style={{ display: 'flex', gap: 12, alignItems: 'center' }}><Icon name="sparkle" color="var(--violet-text)" />IA local que responde em português</li>
+            <li style={{ display: 'flex', gap: 12, alignItems: 'center' }}><Icon name="sparkle" color="var(--violet-text)" />{aiOn ? 'IA local que responde em português' : 'Respostas automáticas sobre os números da empresa'}</li>
             <li style={{ display: 'flex', gap: 12, alignItems: 'center' }}><Icon name="tv" color="var(--violet-text)" />Modo TV para o escritório</li>
           </ul>
         </div>

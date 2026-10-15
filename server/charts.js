@@ -2,6 +2,7 @@
 // Formatos: bars (barras horizontais), line (linha) e pair (dois períodos lado a lado).
 import * as M from './metrics.js';
 import { cashflow } from './cashflow.js';
+import { teamView } from './team.js';
 import { refMonth, monthEnd, addMonths, monthLabel, brDate } from './dates.js';
 
 const rng = (p) => `${brDate(p.from).slice(0, 5)} a ${brDate(p.to).slice(0, 5)}`;
@@ -27,6 +28,8 @@ export function chartFromTool(name, result) {
     case 'margem_periodo':
     case 'resumo_periodo':
       return result.revenue ? { type: 'bars', title: 'Para onde vai a receita', unit: 'brl', items: [{ label: 'Receita', value: result.revenue }, { label: 'Custo das mercadorias', value: -result.cogs, tone: 'neg' }, { label: 'Despesas operacionais', value: -result.opex, tone: 'neg' }, { label: 'Lucro', value: result.profit, tone: result.profit >= 0 ? 'pos' : 'neg' }] } : null;
+    case 'equipe':
+      return result.sellers?.length ? { type: 'bars', title: '% da meta por vendedor', unit: 'pct', items: result.sellers.map((x) => ({ label: x.name, value: x.pct ?? 0, tone: x.onPace ? 'pos' : undefined })) } : null;
     case 'fluxo_de_caixa':
       return result.hasBalance ? { type: 'line', title: 'Saldo projetado por semana', unit: 'brl', points: [{ label: 'hoje', value: result.balance }, ...result.weeks.map((w) => ({ label: w.label, value: w.balance }))], ref: result.minimum ? { value: result.minimum, label: 'mínimo' } : null } : null;
     default:
@@ -57,6 +60,7 @@ export function chartForIntent(org, key) {
       }
       case 'semanal': return chartFromTool('serie_mensal', M.monthlySeries(org, r, 6));
       case 'caixa': return chartFromTool('fluxo_de_caixa', cashflow(org, 90));
+      case 'equipe': { const t = teamView(org); return t.sellers.length ? { type: 'bars', title: '% da meta por vendedor', unit: 'pct', items: t.sellers.map((x) => ({ label: x.name, value: x.pct ?? 0, tone: x.onPace ? 'pos' : undefined })) } : null; }
       default: return null;
     }
   } catch { return null; }

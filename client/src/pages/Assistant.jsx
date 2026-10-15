@@ -16,7 +16,8 @@ const SUGGESTIONS = [
   'Compare o desempenho deste mês com o anterior.',
   'Gere um relatório executivo da semana.',
   'Quais indicadores merecem minha atenção?',
-  'Como está meu fluxo de caixa?'
+  'Como está meu fluxo de caixa?',
+  'Qual vendedor está mais perto da meta?'
 ];
 
 function AiAvatar() {
@@ -128,17 +129,17 @@ export default function Assistant() {
   return (
     <div style={{ display: 'flex', flexWrap: 'wrap', gap: 24, alignItems: 'flex-start' }}>
       <div style={{ flex: '999 1 520px', minWidth: 0, display: 'flex', flexDirection: 'column', gap: 20 }}>
-        <PageHead eyebrow="Pergunte em linguagem natural" title="Assistente Cortex AI">
-          <span className="badge" style={{ padding: '8px 12px', fontSize: 13 }}>
+        <PageHead eyebrow={me.aiEnabled === false ? 'Respostas automáticas com os números da empresa' : 'Pergunte em linguagem natural'} title={me.aiEnabled === false ? 'Perguntas rápidas' : 'Assistente Cortex AI'}>
+          {me.aiEnabled !== false && <span className="badge" style={{ padding: '8px 12px', fontSize: 13 }}>
             <span className="pill-dot" style={{ background: !st ? 'var(--dim)' : st.online && st.hasModel ? 'var(--green)' : 'var(--amber)' }} />
             {!st ? 'Verificando IA…' : st.online && st.hasModel ? `Ollama · ${st.model} · local` : st.online ? `Modelo ${st.model} não instalado` : 'IA offline · respostas automáticas'}
-          </span>
+          </span>}
           {canSpeak && <button className="btn" aria-pressed={autoSpeak} onClick={() => setAutoSpeak(!autoSpeak)} title="Ler as respostas em voz alta automaticamente" style={autoSpeak ? { borderColor: 'var(--violet-line)', background: 'var(--violet-soft)', color: 'var(--violet-text-2)' } : undefined}><Icon name="volume" size={16} color={autoSpeak ? 'var(--violet-text)' : 'var(--muted)'} />{autoSpeak ? 'Leitura em voz ligada' : 'Ler respostas'}</button>}
           <button className="btn" onClick={() => { abortRef.current?.abort(); stopSpeaking(); setMessages([]); setBusy(false); }}><Icon name="plus" size={16} color="var(--muted)" />Nova conversa</button>
         </PageHead>
 
-        {st && !st.online && (
-          <div className="alert warn"><Icon name="info" color="var(--amber)" /><span>O Ollama não está rodando neste computador. As perguntas frequentes continuam funcionando com respostas automáticas; para perguntas livres, rode <code className="mono">ollama serve</code> (e <code className="mono">ollama pull {st.model}</code> na primeira vez).</span></div>
+        {st && !st.online && !st.disabled && (
+          <div className="alert warn"><Icon name="info" color="var(--amber)" /><span>O Ollama não está rodando neste computador. As perguntas frequentes continuam funcionando com respostas automáticas. Para perguntas livres: instale o Ollama (gratuito, em <a href="https://ollama.com/download" target="_blank" rel="noreferrer">ollama.com/download</a>), rode <code className="mono">ollama pull {st.model}</code> uma vez e deixe o Ollama aberto. Se a empresa não usa IA, desligue em Configurações › Cortex AI.</span></div>
         )}
 
         <section aria-label="Conversa" style={{ display: 'flex', flexDirection: 'column', gap: 20, minHeight: 200 }}>
@@ -164,15 +165,16 @@ export default function Assistant() {
           <form onSubmit={(e) => { e.preventDefault(); send(); }} style={{ display: 'flex', alignItems: 'flex-end', gap: 10, padding: '10px 10px 10px 18px', borderRadius: 14, background: 'var(--card)', border: '1px solid var(--line-2)' }}>
             <label htmlFor="ask" className="sr">Pergunte ao Cortex</label>
             <textarea id="ask" rows={2} value={draft} onChange={(e) => setDraft(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } }} placeholder={dict.listening ? 'Ouvindo… fale sua pergunta' : 'Pergunte sobre vendas, clientes, despesas… (Enter envia)'} style={{ flex: 1, resize: 'none', border: 0, outline: 'none', background: 'transparent', fontSize: 15, lineHeight: 1.5, padding: '6px 0' }} />
-            {canListen && <button type="button" className={`btn icon${dict.listening ? ' mic-on' : ''}`} aria-label={dict.listening ? 'Parar ditado' : 'Falar a pergunta'} title={dict.listening ? 'Ouvindo… clique para parar' : 'Falar a pergunta (o áudio é transcrito pelo navegador)'} disabled={busy} onClick={() => (dict.listening ? dict.stop() : dict.start())} style={{ width: 44, minHeight: 44 }}><Icon name={dict.listening ? 'stop' : 'mic'} color={dict.listening ? 'var(--red-text)' : 'var(--muted)'} /></button>}
+            {canListen && me.aiEnabled !== false && <button type="button" className={`btn icon${dict.listening ? ' mic-on' : ''}`} aria-label={dict.listening ? 'Parar ditado' : 'Falar a pergunta'} title={dict.listening ? 'Ouvindo… clique para parar' : 'Falar a pergunta (o áudio é transcrito pelo navegador)'} disabled={busy} onClick={() => (dict.listening ? dict.stop() : dict.start())} style={{ width: 44, minHeight: 44 }}><Icon name={dict.listening ? 'stop' : 'mic'} color={dict.listening ? 'var(--red-text)' : 'var(--muted)'} /></button>}
             <button type="submit" className="btn primary icon" aria-label="Enviar pergunta" disabled={busy || !draft.trim()} style={{ width: 44, minHeight: 44 }}>{busy ? <Spinner color="#fff" /> : <Icon name="up" color="#fff" width={2} />}</button>
           </form>
           {dict.error && <p role="status" style={{ fontSize: 12, color: 'var(--amber-text)' }}>{dict.error}</p>}
-          <p className="dim" style={{ fontSize: 12 }}>As contas são feitas pelo sistema; a IA apenas interpreta os resultados. Dados e respostas ficam no seu computador{canListen ? ' — só o áudio do ditado (microfone) é transcrito pelo serviço do navegador' : ''}.</p>
+          <p className="dim" style={{ fontSize: 12 }}>{me.aiEnabled === false ? 'As contas são feitas pelo sistema.' : 'As contas são feitas pelo sistema; a IA apenas interpreta os resultados.'} Dados e respostas ficam no seu computador{canListen && me.aiEnabled !== false ? ' — só o áudio do ditado (microfone) é transcrito pelo serviço do navegador' : ''}.</p>
         </div>
       </div>
 
       <aside aria-label="Contexto" style={{ flex: '1 1 280px', minWidth: 0, display: 'flex', flexDirection: 'column', gap: 16 }}>
+        {me.aiEnabled !== false && (
         <section className="card tight">
           <h2 style={{ fontSize: 14, fontWeight: 600 }}>IA local</h2>
           {!st ? <div className="skel" style={{ height: 60 }} /> : (
@@ -184,6 +186,7 @@ export default function Assistant() {
           )}
           {me.permissions.configuracoes && <Link to="/configuracoes" style={{ fontSize: 13 }}>Configurar IA</Link>}
         </section>
+        )}
         <section className="card tight">
           <h2 style={{ fontSize: 14, fontWeight: 600 }}>Perguntas recentes</h2>
           {recent.data?.length ? recent.data.map((r) => (
@@ -195,7 +198,7 @@ export default function Assistant() {
         </section>
         <section style={{ border: '1px dashed var(--line-2)', borderRadius: 14, padding: '18px 20px', display: 'flex', gap: 12, fontSize: 13, color: 'var(--muted)', lineHeight: 1.55 }}>
           <Icon name="shield" color="var(--violet-text)" style={{ flex: 'none', marginTop: 1 }} />
-          <span>Processamento 100% local via Ollama. Perguntas e dados não são enviados para a internet{canListen ? ' (exceto o áudio, se você usar o microfone)' : ''}.</span>
+          <span>{me.aiEnabled === false ? 'Sem IA: as respostas são montadas por regras fixas a partir dos números do sistema. Nada é enviado para a internet.' : `Processamento 100% local via Ollama. Perguntas e dados não são enviados para a internet${canListen ? ' (exceto o áudio, se você usar o microfone)' : ''}.`}</span>
         </section>
       </aside>
     </div>

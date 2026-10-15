@@ -5,7 +5,7 @@ import { PageHead } from '../components/Layout.jsx';
 import { Icon, Spinner, Switch, ErrorBox, useAsync, useToast } from '../components/ui.jsx';
 import { initials } from '../format.js';
 
-const SCREENS = [['overview', 'Visão geral'], ['ranking', 'Ranking da equipe'], ['vendas', 'Vendas e produtos'], ['clientes', 'Clientes'], ['financeiro', 'Financeiro', 'contém valores sensíveis'], ['insights', 'Insights da IA']];
+const SCREENS = [['overview', 'Visão geral'], ['ranking', 'Ranking da equipe'], ['vendas', 'Vendas e produtos'], ['clientes', 'Clientes'], ['financeiro', 'Financeiro', 'contém valores sensíveis'], ['insights', 'Insights / destaques']];
 const secsLabel = (s) => { const m = Math.floor(s / 60), r = s % 60; return m === 0 ? `${s} s` : r ? `${m} min ${r} s` : `${m} min`; };
 
 const slug = (t) => t.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 30) || 'tv';
@@ -102,6 +102,14 @@ export default function Settings() {
 
         <section className="card" aria-labelledby="ia">
           <div><h2 id="ia" className="card-title"><Icon name="sparkle" size={16} color="var(--violet-text)" />Cortex AI</h2><p className="card-sub">Modelo de linguagem rodando localmente com Ollama.</p></div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 14px', borderRadius: 10, background: 'var(--side)', border: '1px solid var(--line)' }}>
+            <span style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 3 }}>
+              <span style={{ fontSize: 14, fontWeight: 500 }}>Usar inteligência artificial</span>
+              <span className="dim" style={{ fontSize: 12, lineHeight: 1.5 }}>{form.ai.enabled === false ? 'Desligada: o Cortex não conecta ao Ollama, o Assistente vira “Perguntas rápidas” (respostas automáticas) e o microfone some.' : 'Ligada: perguntas livres são respondidas pelo modelo local.'}</span>
+            </span>
+            <Switch checked={form.ai.enabled !== false} onChange={(v) => set('ai', 'enabled')(v)} label="Usar inteligência artificial" />
+          </div>
+          {form.ai.enabled !== false && <>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 14 }}>
             <label className="field">Endereço do Ollama<input className="input mono" style={{ fontSize: 13 }} value={form.ai.url} onChange={set('ai', 'url')} /></label>
             <label className="field">Modelo
@@ -116,8 +124,9 @@ export default function Settings() {
               ? <span role="status" className="badge ok rise" style={{ padding: '6px 12px', fontSize: 13 }}><Icon name="check" size={14} width={2.6} />Conectado{test.tokensPerSecond ? ` · ${test.tokensPerSecond} tokens/s` : ''}</span>
               : <span role="status" className="badge err rise" style={{ padding: '6px 12px', fontSize: 13, whiteSpace: 'normal' }}><Icon name="alert" size={14} />{test.error || 'Não conectou'}</span>)}
           </div>
+          </>}
           <div>
-            <div className="setting-row"><div><span>Insights automáticos</span><small>A IA reescreve os alertas da TV a cada hora</small></div><Switch label="Insights automáticos" checked={form.ai.autoInsights} onChange={set('ai', 'autoInsights')} /></div>
+            {form.ai.enabled !== false && <div className="setting-row"><div><span>Insights automáticos</span><small>A IA reescreve os alertas da TV a cada hora</small></div><Switch label="Insights automáticos" checked={form.ai.autoInsights} onChange={set('ai', 'autoInsights')} /></div>}
             <div className="setting-row"><div><span>Mostrar ferramentas usadas</span><small>Exibe quais cálculos embasaram cada resposta</small></div><Switch label="Mostrar ferramentas usadas" checked={form.ai.showTools} onChange={set('ai', 'showTools')} /></div>
           </div>
         </section>

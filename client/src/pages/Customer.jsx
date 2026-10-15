@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { api } from '../api.js';
+import { useAuth } from '../auth.jsx';
 import { Icon, ErrorBox, KpiSkeleton, Markdown, useAsync } from '../components/ui.jsx';
 import { brl, brlK, num, initials, brDate } from '../format.js';
 
@@ -56,6 +57,7 @@ function exportCsv(c) {
 }
 
 export default function Customer() {
+  const { me } = useAuth();
   const { id } = useParams();
   const q = useAsync(() => api(`/customers/${id}`), [id]);
   const c = q.data;
@@ -86,7 +88,7 @@ export default function Customer() {
             </div>
             <div className="toolbar">
               <button className="btn" onClick={() => exportCsv(c)}><Icon name="download" size={16} color="var(--muted)" />Exportar</button>
-              <Link to={ask} className="btn primary"><Icon name="sparkle" size={16} />Perguntar sobre este cliente</Link>
+              {me.aiEnabled !== false && <Link to={ask} className="btn primary"><Icon name="sparkle" size={16} />Perguntar sobre este cliente</Link>}
             </div>
           </header>
 
@@ -112,10 +114,10 @@ export default function Customer() {
               <MonthsChart months={c.months} />
             </section>
             <section className="card" aria-labelledby="ia" style={{ flex: '1 1 300px', background: 'var(--violet-soft)', borderColor: 'var(--violet-line)' }}>
-              <h2 id="ia" className="card-title"><Icon name="sparkle" size={16} color="var(--violet-text)" />Leitura do Cortex</h2>
+              <h2 id="ia" className="card-title"><Icon name="sparkle" size={16} color="var(--violet-text)" />{me.aiEnabled === false ? 'Leitura automática' : 'Leitura do Cortex'}</h2>
               <div style={{ fontSize: 14, lineHeight: 1.6 }}><Markdown text={c.reading} /></div>
               {c.suggestion && <p style={{ fontSize: 14, lineHeight: 1.6 }}><strong>Sugestão:</strong> {c.suggestion}</p>}
-              <Link to={ask} className="btn soft" style={{ marginTop: 'auto' }}>Aprofundar com o Cortex<Icon name="arrow" size={16} /></Link>
+              {me.aiEnabled !== false && <Link to={ask} className="btn soft" style={{ marginTop: 'auto' }}>Aprofundar com o Cortex<Icon name="arrow" size={16} /></Link>}
             </section>
           </div>
 

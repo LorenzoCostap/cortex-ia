@@ -3,6 +3,7 @@
 //  - como base dos insights que giram na TV.
 import * as M from './metrics.js';
 import { cashflow } from './cashflow.js';
+import { teamView } from './team.js';
 import { todayStr, refMonth, monthEnd, addMonths, monthLabel, brDate } from './dates.js';
 
 export const brl = (v) => (v ?? 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', maximumFractionDigits: 0 });
@@ -26,6 +27,7 @@ export const QUESTIONS = [
 export function detectIntent(q) {
   const s = q.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
   if (/(caixa|saldo|fluxo)/.test(s)) return 'caixa';
+  if (/(vendedor|vendedora|equipe|ranking|regi[aã]o|regioes|regiões)/.test(s)) return 'equipe';
   if (/(atenc|alerta|preocup|risco|indicadores? (que|merec))/.test(s)) return 'atencao';
   if (/(relatorio|semana|executiv)/.test(s)) return 'semanal';
   if (/(caiu|queda|diminu|caindo|baixou|por que .*fatur|porque .*fatur)/.test(s)) return 'queda';
@@ -53,6 +55,18 @@ export function answerIntent(org, key) {
       return { severity: c.firstBelow ? 'warn' : 'pos', tools: ['fluxo_de_caixa'],
         answer: `Saldo de hoje: **${brl(c.balance)}**. Nos próximos 90 dias entram **${brl(c.totals.in)}** e saem **${brl(c.totals.out)}**, fechando em **${brl(c.endBalance)}**. O menor saldo previsto é ${brl(c.minBalance)} em ${brDate(c.minDate).slice(0, 5)}.${below}`,
         rows: [{ label: 'Saldo em 90 dias', value: brlK(c.endBalance), tone: 'neutral' }, { label: 'Menor saldo', value: brlK(c.minBalance), tone: c.firstBelow ? 'neg' : 'neutral' }] };
+    }
+    case 'equipe': {
+      const t = teamView(org);
+      if (!t.sellers.length) return { severity: 'info', tools: ['equipe'], answer: 'Ainda não há vendas com vendedor neste mês. Importe as vendas com a coluna “vendedor”.', rows: [] };
+      const top = t.sellers[0], last = t.sellers[t.sellers.length - 1];
+      const pctTxt = (x) => (x.pct === null ? 'sem meta' : `${x.pct.toLocaleString('pt-BR', { maximumFractionDigits: 0 })}% da meta`);
+      return {
+        severity: t.team.projectionPct !== null && t.team.projectionPct < 95 ? 'media' : 'pos', tools: ['equipe'],
+        answer: `Em **${t.label.toLowerCase()}** (até hoje), quem está mais perto da meta é **${top.name}**, com ${brl(top.revenue)} (${pctTxt(top)}).${t.expectedPct !== null && !t.closed ? ` O esperado para hoje é ${t.expectedPct.toLocaleString('pt-BR', { maximumFractionDigits: 0 })}%.` : ''}\n${t.sellers.map((x, i) => `${i + 1}. **${x.name}** — ${brl(x.revenue)} · ${pctTxt(x)}`).join('\n')}\n\nA região que mais vende é **${t.regions[0]?.region || '—'}** (${(t.regions[0]?.share || 0).toLocaleString('pt-BR', { maximumFractionDigits: 0 })}% do mês). ${last.name !== top.name ? `${last.name} é quem está mais longe da meta.` : ''}`,
+        short: `${top.name} lidera a equipe com ${pctTxt(top)}.`,
+        rows: t.sellers.slice(0, 3).map((x) => ({ label: x.name, value: x.pct === null ? brlK(x.revenue) : `${Math.round(x.pct)}%`, tone: x.onPace ? 'pos' : 'neg' }))
+      };
     }
     case 'queda': {
       const c = M.comparePeriods(org, a, b);
@@ -87,7 +101,7 @@ export function answerIntent(org, key) {
       if (!t.length) return { severity: 'pos', tools: ['clientes_em_queda'], answer: `Nenhum cliente relevante comprou muito abaixo da média em **${a.label}**.`, rows: [] };
       return {
         severity: 'alta', tools: ['clientes_em_queda'],
-        answer: `Comparando **${a.label}** com a média dos 3 meses anteriores, estes clientes compraram bem menos:\n${t.map((x, i) => `${i + 1}. **${x.name}** — ${pct(x.change)} (${brlK(-x.lost)}). Último pedido há ${x.daysSinceLastOrder} dia(s).`).join('\n')}`,
+        answer: `Comparando **${a.label}** com a média dos 3 meses anteriores, estes clientes compraram bem menos:\n${t.map((x, i) => `${i + 1}. **${x.name}** — ${pct(x.change)} (${brlK(-x.lost)}). ${x.daysSinceLastOrder === 0 ? 'Comprou hoje.' : x.daysSinceLastOrder === 1 ? 'Último pedido ontem.' : `Último pedido há ${x.daysSinceLastOrder} dias.`}`).join('\n')}`,
         short: `${t[0].name} comprou ${pct(Math.abs(t[0].change), false)} menos que a sua média${t[0].daysSinceLastOrder >= 10 ? ` e não faz pedido há ${t[0].daysSinceLastOrder} dias` : ''}.`,
         rows: t.slice(0, 3).map((x) => ({ label: x.name, value: pct(x.change), tone: 'neg' }))
       };
@@ -138,9 +152,10 @@ export function answerIntent(org, key) {
   }
 }
 
-export function helpAnswer() {
+export function helpAnswer(aiAvailable = true) {
+  if (!aiAvailable) return { severity: 'info', tools: [], rows: [], answer: `Não encontrei essa pergunta. Posso responder sobre:\n${QUESTIONS.map((q) => `- ${q.text}`).join('\n')}\n- Como está meu fluxo de caixa?\n- Qual vendedor está mais perto da meta?\n\nEscreva com palavras parecidas (por exemplo: queda, produtos, clientes, margem, comparar, semana, atenção, caixa, vendedor).` };
   return {
     severity: 'info', tools: [], rows: [],
-    answer: `Sem a IA local ligada eu respondo apenas às perguntas frequentes:\n${QUESTIONS.map((q) => `- ${q.text}`).join('\n')}\n\nPara perguntas livres, inicie o Ollama neste computador (\`ollama serve\`) e confira o endereço em Configurações.`
+    answer: `Sem a IA local ligada eu respondo apenas às perguntas frequentes:\n${QUESTIONS.map((q) => `- ${q.text}`).join('\n')}\n\nPara perguntas livres, instale o Ollama (gratuito, em ollama.com/download), baixe o modelo uma vez e deixe o programa aberto. O passo a passo está no README.`
   };
 }

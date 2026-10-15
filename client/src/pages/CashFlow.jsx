@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../api.js';
+import { useAuth } from '../auth.jsx';
 import { PageHead } from '../components/Layout.jsx';
 import { Icon, Spinner, ErrorBox, KpiSkeleton, Modal, useAsync, useToast } from '../components/ui.jsx';
 import { brl, brlK, brDate } from '../format.js';
@@ -120,6 +121,7 @@ function exportCsv(d) {
 }
 
 export default function CashFlow() {
+  const { me } = useAuth();
   const toast = useToast();
   const [h, setH] = useState(() => { try { return +localStorage.getItem('cortex.cash.h') || 90; } catch { return 90; } });
   const q = useAsync(() => api(`/cashflow?h=${h}`), [h]);
@@ -170,7 +172,7 @@ export default function CashFlow() {
             O saldo previsto fica abaixo do mínimo de segurança ({brl(d.minimum)}) {d.firstBelow === d.today ? <strong>hoje</strong> : <>em <strong>{dm(d.firstBelow)}</strong></>}
             {d.culprits.length ? `, semana do pagamento de ${d.culprits.join(' e ')}` : ''}. Menor saldo: <strong>{brl(d.minBalance)}</strong> em {dm(d.minDate)}.
           </span>
-          <Link to={`/assistente?q=${encodeURIComponent('Como está meu fluxo de caixa nos próximos 90 dias?')}`} style={{ fontSize: 13, color: 'var(--amber-text)' }}>Perguntar ao Cortex →</Link>
+          {me.aiEnabled !== false && <Link to={`/assistente?q=${encodeURIComponent('Como está meu fluxo de caixa nos próximos 90 dias?')}`} style={{ fontSize: 13, color: 'var(--amber-text)' }}>Perguntar ao Cortex →</Link>}
         </div>
       )}
 

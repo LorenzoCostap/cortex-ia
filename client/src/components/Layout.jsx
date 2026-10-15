@@ -45,7 +45,7 @@ export default function Layout({ children }) {
           </span>
         </div>
         <nav className="nav" aria-label="Navegação principal">
-          {NAV.filter((n) => me.permissions[n.key]).map((n) => (
+          {NAV.filter((n) => me.permissions[n.key]).map((n) => (n.key === 'assistente' && me.aiEnabled === false ? { ...n, label: 'Perguntas rápidas', icon: 'search' } : n)).map((n) => (
             <NavLink key={n.to} to={n.to} end={n.to === '/'} className={({ isActive }) => (isActive ? 'active' : '')}>
               <Icon name={n.icon} />{n.label}
               {n.key === 'alertas' && unread > 0 && <span className="nav-count" aria-label={`${unread} não lidos`}>{unread}</span>}

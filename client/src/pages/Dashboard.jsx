@@ -91,7 +91,7 @@ export default function Dashboard() {
         <GoalCard today={me.today} fallback={me.tv?.goalPeriod} cmp={cmp} />
         <section className="card" aria-labelledby="ai-title" style={{ flex: '1 1 320px' }}>
           <div>
-            <h2 id="ai-title" className="card-title"><Icon name="sparkle" size={16} color="var(--violet-text)" />Insights do Cortex</h2>
+            <h2 id="ai-title" className="card-title"><Icon name="sparkle" size={16} color="var(--violet-text)" />{me.aiEnabled === false ? 'Destaques automáticos' : 'Insights do Cortex'}</h2>
             <p className="card-sub">{d.data?.insights?.[0] ? `Atualizado ${new Date(d.data.insights[0].createdAt.replace(' ', 'T') + 'Z').toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })} · ${d.data.insights[0].source === 'ia' ? 'IA local' : 'automático'}` : 'Gerando os primeiros insights…'}</p>
           </div>
           {!d.data ? <div className="skel" style={{ height: 220 }} /> : (
@@ -107,7 +107,7 @@ export default function Dashboard() {
               ))}
             </ul>
           )}
-          <Link to="/assistente" className="btn soft" style={{ marginTop: 'auto' }}>Perguntar ao Cortex<Icon name="arrow" size={16} /></Link>
+          <Link to="/assistente" className="btn soft" style={{ marginTop: 'auto' }}>{me.aiEnabled === false ? 'Ver perguntas rápidas' : 'Perguntar ao Cortex'}<Icon name="arrow" size={16} /></Link>
         </section>
       </div>
 

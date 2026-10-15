@@ -29,7 +29,7 @@ function useClock() {
 
 const panel = { padding: 36, borderRadius: 20, background: '#17171B', border: '1px solid #24242B', display: 'flex', flexDirection: 'column', gap: 24, minWidth: 0, minHeight: 0 };
 
-function CortexWidget({ insights, seconds, push, compact = false }) {
+function CortexWidget({ insights, seconds, push, compact = false, ai = true }) {
   const [i, setI] = useState(0);
   useEffect(() => { setI(0); }, [insights.length]);
   useEffect(() => {
@@ -41,10 +41,10 @@ function CortexWidget({ insights, seconds, push, compact = false }) {
   return (
     <section style={{ ...panel, background: '#19162A', border: '1px solid #3A3158', ...(compact ? { padding: '18px 24px', gap: 12, borderRadius: 16 } : {}) }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-        <h2 style={{ margin: 0, fontSize: compact ? 22 : 26, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 12 }}><Icon name="sparkle" size={compact ? 22 : 26} color="#B9A3FF" />Cortex AI</h2>
+        <h2 style={{ margin: 0, fontSize: compact ? 22 : 26, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 12 }}><Icon name="sparkle" size={compact ? 22 : 26} color="#B9A3FF" />{ai ? 'Cortex AI' : 'Destaques'}</h2>
         <span style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 16, color: '#D6C9FF' }}>
           <span style={{ width: 10, height: 10, borderRadius: '50%', background: push ? '#34D399' : '#A78BFA', animation: 'glow 2s ease-in-out infinite' }} />
-          {push ? `Enviado por ${push.by}` : insights.length ? `Pergunta ${i + 1} de ${insights.length}` : 'Preparando'}
+          {push ? `Enviado por ${push.by}` : insights.length ? `${ai ? 'Pergunta' : 'Destaque'} ${i + 1} de ${insights.length}` : 'Preparando'}
         </span>
       </div>
       {!item ? <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Spinner size={32} /></div> : (
@@ -248,12 +248,13 @@ export default function TV() {
         <BigKpi label="Pedidos no mês" value={num(k.orders)} d={`${delta(dl.orders)} ${vs}`} tone={toneOf(dl.orders)} />
       </section>
     );
-    const widget = <CortexWidget insights={insights} seconds={tv.questionInterval || 10} push={push} />;
+    const ai = data.aiEnabled !== false;
+    const widget = <CortexWidget insights={insights} seconds={tv.questionInterval || 10} push={push} ai={ai} />;
     const two = (left) => <div style={{ flex: 1, minHeight: 0, display: 'grid', gridTemplateColumns: 'minmax(0, 1.6fr) minmax(0, 1fr)', gap: 24 }}>{left}{widget}</div>;
 
     if (current === 'overview') {
       const periodText = goal ? `${periodLabel(goal.period).toLowerCase()} · por ${goal.unit.replace('mes', 'mês')}` : 'últimos 12 meses · por mês';
-      content = <TVFinance data={data} goal={goal} periodText={periodText} hide={hide} widget={<CortexWidget insights={insights} seconds={tv.questionInterval || 10} push={push} compact />} />;
+      content = <TVFinance data={data} goal={goal} periodText={periodText} hide={hide} widget={<CortexWidget insights={insights} seconds={tv.questionInterval || 10} push={push} compact ai={ai} />} />;
     } else if (current === 'ranking' && data.ranking) {
       content = <RankingScreen r={data.ranking} hide={hide} />;
     } else if (current === 'vendas') {
@@ -319,7 +320,7 @@ export default function TV() {
             <BrandMark size={48} />
             <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
               <span style={{ fontSize: 28, fontWeight: 600 }}>{me.org.name}</span>
-              <span style={{ fontSize: 20, color: '#A6A6B0' }}>{SCREEN_LABEL[current]}{current === 'ranking' && data?.ranking ? ` · ${data.ranking.label.split(' ')[0].toLowerCase()}, até hoje` : d && current !== 'insights' ? ` · ${d.label}` : ''}{device ? ` · ${device.name}` : ''}</span>
+              <span style={{ fontSize: 20, color: '#A6A6B0' }}>{current === 'insights' && data?.aiEnabled === false ? 'Destaques automáticos' : SCREEN_LABEL[current]}{current === 'ranking' && data?.ranking ? ` · ${data.ranking.label.split(' ')[0].toLowerCase()}, até hoje` : d && current !== 'insights' ? ` · ${d.label}` : ''}{device ? ` · ${device.name}` : ''}</span>
             </div>
           </div>
           {activeNotice && (

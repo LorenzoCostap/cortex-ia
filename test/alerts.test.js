@@ -56,3 +56,21 @@ test('mini gráficos', () => {
   assert.equal(chartFromTool('top_produtos', []), null);
   assert.equal(chartFromTool('contas', [{ party: 'x' }]), null);
 });
+
+test('modo sem IA não conecta ao Ollama e responde por regras', async () => {
+  const { ask, ollamaStatus } = await import('../server/ai.js');
+  const realFetch = globalThis.fetch;
+  let called = 0;
+  globalThis.fetch = (...a) => { called++; return realFetch(...a); };
+  const ai = { ...getSettings(org).ai, enabled: false };
+  assert.equal((await ollamaStatus(ai)).disabled, true);
+  const r = await ask({ org, orgName: 'Teste', ai, question: 'qual vendedor está mais perto da meta?' });
+  assert.equal(r.mode, 'automatico');
+  assert.equal(r.notice, null);
+  assert.match(r.answer, /mais perto da meta/);
+  assert.equal(r.chart.type, 'bars');
+  const h = await ask({ org, orgName: 'Teste', ai, question: 'qual a previsão do tempo?' });
+  assert.match(h.answer, /Não encontrei essa pergunta/);
+  assert.equal(called, 0, 'nenhuma chamada de rede');
+  globalThis.fetch = realFetch;
+});

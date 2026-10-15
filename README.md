@@ -7,7 +7,7 @@ Dashboard empresarial que roda **no próprio computador** — com login por orga
 ## Requisitos
 
 - [Node.js](https://nodejs.org) 20 ou mais novo
-- (Opcional) [Ollama](https://ollama.com) para a IA responder perguntas livres
+- (Opcional) [Ollama](https://ollama.com), gratuito, para a IA responder perguntas livres — veja [IA local](#ia-local-ollama--opcional)
 
 ## Como rodar
 
@@ -33,20 +33,64 @@ Em **Configurações › Modo TV › TVs cadastradas** dá para dar nome a cada 
 
 As telas giram sozinhas (30 s a 5 min, configurável) e o widget do Cortex AI passa pelas perguntas frequentes. No Assistente, o botão **Enviar para a TV** mostra a resposta em destaque nas telas conectadas.
 
-### IA local (Ollama)
+### IA local (Ollama) — opcional
+
+O Cortex funciona sem IA: as perguntas frequentes (queda do faturamento, produtos, clientes, margem, comparação, relatório da semana, atenção, caixa e vendedores) têm **respostas automáticas** calculadas pelo sistema. A IA serve para **perguntas livres**, escritas do seu jeito.
+
+A IA roda **no seu computador**, pelo [Ollama](https://ollama.com) — um programa gratuito. Não tem mensalidade nem cobrança por uso, e os dados da empresa não saem da máquina.
+
+**1. Instale o Ollama**
+
+| Sistema | Como instalar |
+|---|---|
+| Windows | Baixe o instalador em [ollama.com/download](https://ollama.com/download) e execute. Ele fica rodando sozinho em segundo plano (ícone perto do relógio). |
+| macOS | Baixe em [ollama.com/download](https://ollama.com/download), arraste para Aplicativos e abra uma vez. |
+| Linux | `curl -fsSL https://ollama.com/install.sh \| sh` |
+
+**2. Baixe o modelo** (uma vez só; abra o PowerShell ou o Terminal):
 
 ```bash
 ollama pull qwen2.5:7b
-ollama serve
 ```
 
-O modelo e o endereço podem ser trocados em **Configurações**. Sem o Ollama, as 7 perguntas frequentes continuam funcionando com respostas automáticas.
+**3. Confira:** abra o **Assistente** no Cortex. O selo do topo deve mostrar **“Ollama · qwen2.5:7b · local”**. Em **Configurações › Cortex AI › Testar conexão** aparece a velocidade (tokens por segundo).
+
+**Qual modelo escolher**
+
+| Modelo | Download | Memória livre | Quando usar |
+|---|---|---|---|
+| `qwen2.5:3b` | ~2 GB | 4 GB | Computador mais simples; responde rápido, entende um pouco pior |
+| `qwen2.5:7b` | ~4,7 GB | 8 GB | **Recomendado** |
+| `qwen2.5:14b` | ~9 GB | 16 GB | Respostas melhores; ideal com placa de vídeo |
+
+Para trocar: `ollama pull <modelo>` e depois mude o nome em **Configurações › Cortex AI**. Sem placa de vídeo cada resposta pode levar de 20 s a 1 min — é normal.
+
+**Problemas comuns**
+
+- *“IA offline · respostas automáticas”*: o Ollama não está aberto. No Windows, abra o Ollama pelo menu Iniciar; no Linux/macOS rode `ollama serve`.
+- *“Modelo … não instalado”*: rode `ollama pull` com o nome exato que está em Configurações.
+- *Muito lento*: use o `qwen2.5:3b` ou feche programas pesados.
+- *Ollama em outro computador da rede*: em Configurações, troque o endereço `http://localhost:11434` pelo IP daquela máquina (lá, inicie o Ollama com a variável `OLLAMA_HOST=0.0.0.0`).
+
+**Usar sem IA (empresa que não permite):** em **Configurações › Cortex AI**, desligue **“Usar inteligência artificial”**. O Cortex para de se conectar ao Ollama, o Assistente vira **Perguntas rápidas** (só respostas automáticas), o microfone some e a TV mostra “Destaques” em vez de “Cortex AI”.
 
 **Gráficos e voz:** as respostas trazem um mini gráfico quando ajuda (queda, comparação, produtos, clientes, margem, caixa). No Chrome/Edge dá para falar a pergunta pelo microfone (o áudio é transcrito pelo serviço do navegador, então precisa de internet) e ouvir as respostas (vozes do sistema, funciona offline).
 
 **Como a IA funciona:** ela nunca faz contas. O modelo escolhe uma “ferramenta” (`comparar_periodos`, `top_produtos`, `clientes_em_queda`…), o Node calcula os números no SQLite e a IA só explica o resultado.
 
 ## Seus dados
+
+**Quer testar a importação antes de usar seus dados?** A pasta [`exemplos/`](exemplos/) tem planilhas fictícias no formato certo: `cortex-exemplo-dados.xlsx` (todas as abas + uma aba *Resumo* mostrando como o lucro é calculado) e os arquivos separados para importar na ordem — `1-vendas`, `2-despesas`, `3-contas`, `4-metas`.
+
+O que o Cortex precisa para calcular tudo:
+
+| Planilha | Colunas obrigatórias | Opcionais (mas recomendadas) |
+|---|---|---|
+| Vendas (uma linha por item) | Data, Cliente, Produto, Quantidade, Valor | **Custo unitário** (sem ele o lucro é estimado em 70% do preço), Pedido, Categoria, Vendedor, Região |
+| Despesas | Data, Categoria, Valor | Descrição |
+| Contas a pagar/receber | Tipo, Parceiro, Vencimento, Valor | Pago em |
+| Metas | Mês, Meta | Vendedor ou Categoria (metas individuais) |
+
 
 - **Importação e backup › Importar planilha:** envie `.xlsx` ou `.csv` de vendas, despesas, contas a pagar/receber ou metas. O Cortex detecta o tipo, sugere o mapeamento das colunas, mostra as linhas com erro e só então importa. Baixe os modelos na mesma tela.
 - **Importação automática:** aponte uma pasta (por exemplo, onde o ERP exporta) e o Cortex importa sozinho os arquivos novos. Pedidos com o mesmo número não são duplicados.
