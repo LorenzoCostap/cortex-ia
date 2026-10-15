@@ -162,7 +162,7 @@ CREATE TABLE IF NOT EXISTS imported_files (
 CREATE INDEX IF NOT EXISTS idx_orders_seller ON orders(org_id, seller);
 `);
 
-export const MODULES = ['dashboard', 'assistente', 'vendas', 'metas', 'importacao', 'relatorios', 'historico', 'configuracoes', 'administracao'];
+export const MODULES = ['dashboard', 'assistente', 'vendas', 'metas', 'fluxo', 'importacao', 'relatorios', 'historico', 'configuracoes', 'administracao'];
 export const ROLES = ['admin', 'gestor', 'analista', 'visualizador'];
 
 export const DEFAULT_SETTINGS = {
@@ -170,6 +170,7 @@ export const DEFAULT_SETTINGS = {
   tv: { interval: 30, questionInterval: 10, goalPeriod: '12m', screens: { overview: true, vendas: true, clientes: true, financeiro: false, insights: true }, hideMoney: false },
   appearance: { theme: 'dark', animations: true },
   targets: { netMargin: 18 },
+  cash: { balance: null, date: null, minimum: 0 },
   org: { currency: 'BRL', timezone: 'America/Sao_Paulo' },
   schedules: { weekly: { enabled: true, weekday: 1, hour: 8 }, monthly: { enabled: true, day: 1, hour: 9 } },
   security: { strongPassword: true, sessionHours: 12 },
@@ -180,6 +181,7 @@ export const DEFAULT_SETTINGS = {
     assistente: { admin: true, gestor: true, analista: true, visualizador: false },
     vendas: { admin: true, gestor: true, analista: true, visualizador: true },
     metas: { admin: true, gestor: true, analista: true, visualizador: false },
+    fluxo: { admin: true, gestor: true, analista: false, visualizador: false },
     importacao: { admin: true, gestor: true, analista: false, visualizador: false },
     relatorios: { admin: true, gestor: true, analista: true, visualizador: false },
     historico: { admin: true, gestor: true, analista: false, visualizador: false },

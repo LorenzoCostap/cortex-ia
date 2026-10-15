@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { api, askStream } from '../api.js';
 import { useAuth } from '../auth.jsx';
 import { PageHead } from '../components/Layout.jsx';
@@ -79,7 +79,8 @@ function AssistantMessage({ m, question, showTools }) {
 export default function Assistant() {
   const { me } = useAuth();
   const [messages, setMessages] = useState([]);
-  const [draft, setDraft] = useState('');
+  const [params] = useSearchParams();
+  const [draft, setDraft] = useState(() => params.get('q') || '');
   const [busy, setBusy] = useState(false);
   const status = useAsync(() => api('/ai/status'), []);
   const recent = useAsync(() => api('/ai/recent'), []);

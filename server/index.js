@@ -3,6 +3,7 @@ import path from 'node:path';
 import fs from 'node:fs';
 import os from 'node:os';
 import { fileURLToPath } from 'node:url';
+import { cashflow } from './cashflow.js';
 import { db, getSettings, saveSettings, logEvent, MODULES, ROLES } from './db.js';
 import { loadUser, requireAuth, requirePerm, can, createSession, destroySession, verifyPassword, hashPassword, passwordProblem } from './auth.js';
 import * as M from './metrics.js';
@@ -134,7 +135,8 @@ app.get('/api/tv/data', requireAuth, (req, res) => {
     categories: M.categoryBreakdown(o, from, to), topCustomers: M.customersDeclining(o, from, to, 5),
     expenses: M.expensesByCategory(o, from, to), receivables: M.bills(o, 'receber', { days: 15 }).slice(0, 6), payables: M.bills(o, 'pagar', { days: 15 }).slice(0, 6),
     payables7: M.bills(o, 'pagar', { days: 7 }).reduce((s, b) => s + b.amount, 0),
-    forecast: M.forecast(o), targets: getSettings(o).targets
+    forecast: M.forecast(o), targets: getSettings(o).targets,
+    cashflow: (() => { const c = cashflow(o, 90); return c.hasBalance ? { balance: c.balance, minimum: c.minimum, endBalance: c.endBalance, minBalance: c.minBalance, firstBelow: c.firstBelow, weeks: c.weeks.map((w) => ({ label: w.label, balance: w.balance })) } : null; })()
   });
 });
 
@@ -386,6 +388,30 @@ app.post('/api/goals/copy-last-year', requirePerm('metas'), (req, res) => {
     if (base > 0) out.push({ month: g.month, target: Math.round((base * (1 + pct / 100)) / 1000) * 1000 });
   }
   res.json({ suggestions: out });
+});
+
+/* ---------- Fluxo de caixa ---------- */
+app.get('/api/cashflow', requirePerm('fluxo'), (req, res) => res.json(cashflow(org(req), req.query.h)));
+
+app.put('/api/cashflow/settings', requirePerm('fluxo'), (req, res) => {
+  const { balance, minimum } = req.body || {};
+  const num = (v) => (v === null || v === '' || v === undefined ? null : Number(v));
+  const b = num(balance), m = num(minimum);
+  if ((b !== null && !Number.isFinite(b)) || (m !== null && (!Number.isFinite(m) || m < 0))) return res.status(400).json({ error: 'Valores inválidos.' });
+  saveSettings(org(req), { cash: { balance: b, date: b === null ? null : todayStr(), minimum: m ?? 0 } });
+  logEvent(org(req), req.user.id, 'config', b === null ? 'Saldo de caixa removido' : `Saldo de caixa atualizado para R$ ${Math.round(b).toLocaleString('pt-BR')}`);
+  res.json(cashflow(org(req), req.query.h));
+});
+
+app.post('/api/bills/:id/pay', requirePerm('fluxo'), (req, res) => {
+  const b = db.prepare('SELECT * FROM bills WHERE id = ? AND org_id = ? AND paid_at IS NULL').get(+req.params.id, org(req));
+  if (!b) return res.status(404).json({ error: 'Conta não encontrada ou já baixada.' });
+  db.prepare('UPDATE bills SET paid_at = ? WHERE id = ?').run(todayStr(), b.id);
+  // Pagar ou receber mexe no saldo informado.
+  const cash = getSettings(org(req)).cash;
+  if (typeof cash.balance === 'number') saveSettings(org(req), { cash: { balance: cash.balance + (b.kind === 'pagar' ? -b.amount : b.amount), date: todayStr() } });
+  logEvent(org(req), req.user.id, 'config', `${b.kind === 'pagar' ? 'Pagamento' : 'Recebimento'} baixado: ${b.party} (R$ ${Math.round(b.amount).toLocaleString('pt-BR')})`);
+  res.json({ ok: true });
 });
 
 /* ---------- Dados ---------- */

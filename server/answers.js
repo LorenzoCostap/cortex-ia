@@ -2,6 +2,7 @@
 //  - quando o Ollama está desligado (modo automático), e
 //  - como base dos insights que giram na TV.
 import * as M from './metrics.js';
+import { cashflow } from './cashflow.js';
 import { todayStr, refMonth, monthEnd, addMonths, monthLabel, brDate } from './dates.js';
 
 export const brl = (v) => (v ?? 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', maximumFractionDigits: 0 });
@@ -24,6 +25,7 @@ export const QUESTIONS = [
 
 export function detectIntent(q) {
   const s = q.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+  if (/(caixa|saldo|fluxo)/.test(s)) return 'caixa';
   if (/(atenc|alerta|preocup|risco|indicadores? (que|merec))/.test(s)) return 'atencao';
   if (/(relatorio|semana|executiv)/.test(s)) return 'semanal';
   if (/(caiu|queda|diminu|caindo|baixou|por que .*fatur|porque .*fatur)/.test(s)) return 'queda';
@@ -44,6 +46,14 @@ const tone = (v, goodWhenUp = true) => (v === null || v === 0 ? 'neutral' : (v >
 export function answerIntent(org, key) {
   const { a, b } = refPeriods();
   switch (key) {
+    case 'caixa': {
+      const c = cashflow(org, 90);
+      if (!c.hasBalance) return { severity: 'neutral', tools: ['fluxo_de_caixa'], answer: 'Ainda não sei o saldo do caixa. Informe o saldo de hoje em **Fluxo de caixa › Atualizar saldo** e eu projeto os próximos 90 dias com as contas a pagar, a receber e a média de vendas.', rows: [] };
+      const below = c.firstBelow ? ` Atenção: o saldo fica abaixo do mínimo de **${brl(c.minimum)}** em **${brDate(c.firstBelow).slice(0, 5)}**${c.culprits.length ? ` (${c.culprits.join(' e ')})` : ''}.` : c.minimum ? ` O saldo não fica abaixo do mínimo de ${brl(c.minimum)} no período.` : '';
+      return { severity: c.firstBelow ? 'warn' : 'pos', tools: ['fluxo_de_caixa'],
+        answer: `Saldo de hoje: **${brl(c.balance)}**. Nos próximos 90 dias entram **${brl(c.totals.in)}** e saem **${brl(c.totals.out)}**, fechando em **${brl(c.endBalance)}**. O menor saldo previsto é ${brl(c.minBalance)} em ${brDate(c.minDate).slice(0, 5)}.${below}`,
+        rows: [{ label: 'Saldo em 90 dias', value: brlK(c.endBalance), tone: 'neutral' }, { label: 'Menor saldo', value: brlK(c.minBalance), tone: c.firstBelow ? 'neg' : 'neutral' }] };
+    }
     case 'queda': {
       const c = M.comparePeriods(org, a, b);
       const diff = c.revenueDiff;

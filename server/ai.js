@@ -1,6 +1,7 @@
 // Integração com o Ollama (IA local) usando "tool calling":
 // a IA escolhe qual função de métricas chamar, o Node calcula, e a IA só explica o resultado.
 import * as M from './metrics.js';
+import { cashflow } from './cashflow.js';
 import { todayStr, refMonth, monthEnd, addMonths, monthStart, monthLabel, isIso, weekRange, addDays } from './dates.js';
 import { answerIntent, detectIntent, helpAnswer } from './answers.js';
 
@@ -49,7 +50,8 @@ export const TOOLS = [
   fn('relatorio_semanal', 'Dados para o relatório executivo da última semana completa comparada à anterior.'),
   fn('indicadores_atencao', 'Lista de alertas atuais: contas vencidas, clientes parados, produtos em queda, meta em risco, margem.'),
   fn('contas', 'Contas a pagar ou a receber em aberto (vencidas e a vencer).', { tipo: { type: 'string', enum: ['pagar', 'receber'] }, dias: { type: 'integer', description: 'Janela de vencimento em dias (padrão 30)' } }, ['tipo']),
-  fn('meta_do_mes', 'Progresso da meta de faturamento do mês atual (em andamento).')
+  fn('meta_do_mes', 'Progresso da meta de faturamento do mês atual (em andamento).'),
+  fn('fluxo_de_caixa', 'Saldo de caixa projetado para os próximos 30, 60 ou 90 dias: entradas, saídas, menor saldo e quando fica abaixo do mínimo.', { dias: { type: 'integer', enum: [30, 60, 90] } })
 ];
 
 function runTool(org, name, args = {}) {
@@ -72,6 +74,7 @@ function runTool(org, name, args = {}) {
     case 'indicadores_atencao': return M.attentionIndicators(org);
     case 'contas': return M.bills(org, args.tipo === 'receber' ? 'receber' : 'pagar', { days: Math.min(+args.dias || 30, 365) });
     case 'meta_do_mes': return M.goalProgress(org);
+    case 'fluxo_de_caixa': { const c = cashflow(org, args.dias || 90); return { ...c, moves: c.moves.filter((m) => !m.estimate).slice(0, 15) }; }
     default: return { erro: `Ferramenta desconhecida: ${name}` };
   }
 }

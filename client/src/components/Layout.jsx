@@ -8,6 +8,7 @@ export const NAV = [
   { to: '/assistente', key: 'assistente', label: 'Assistente Cortex AI', icon: 'sparkle' },
   { to: '/vendas', key: 'vendas', label: 'Vendas e indicadores', icon: 'trend' },
   { to: '/metas', key: 'metas', label: 'Metas', icon: 'target' },
+  { to: '/fluxo-de-caixa', key: 'fluxo', label: 'Fluxo de caixa', icon: 'wallet' },
   { to: '/importacao', key: 'importacao', label: 'Importação e backup', icon: 'upload' },
   { to: '/relatorios', key: 'relatorios', label: 'Relatórios', icon: 'file' },
   { to: '/historico', key: 'historico', label: 'Histórico', icon: 'clock' },

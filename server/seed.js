@@ -1,7 +1,7 @@
 // Gera uma empresa fictícia (Grupo Valmar) com ~13 meses de vendas, despesas, contas e metas.
 // Os dados são relativos à data de hoje: o "mês de referência" é sempre o último mês completo,
 // e ele tem uma queda proposital para a IA ter o que explicar.
-import { db, logEvent } from './db.js';
+import { db, logEvent, saveSettings } from './db.js';
 import { hashPassword } from './auth.js';
 import { todayStr, addDays, addMonths, monthStart, monthEnd, monthKey, weekday, refMonth } from './dates.js';
 import { fileURLToPath } from 'node:url';
@@ -182,9 +182,17 @@ export function generateDemoData(orgId, today = todayStr()) {
     [['Distribuidora Sul Grãos', -20, 21400], ['Torrefação Serra Alta', -34, 17650], ['Aluguel do galpão', -34, 12000]]
       .forEach(([p, d, v]) => insB.run(orgId, 'pagar', p, addDays(today, d), v, addDays(today, d)));
     const rec = [['Mercado Bom Preço', -9, 8420], ['Lancheria Bom Gosto', -6, 1960], ['Restaurante Colonial', -3, 2240], ['Rede SuperSul', 2, 14900], ['Empório Central', 4, 7310], ['Padaria Trigo Fino', 5, 4380], ['Supermercado Bela Vista', 7, 9150], ['Armazém Serrano', 9, 6020], ['Rede SuperSul', 16, 15200], ['Mercado São Jorge', 11, 3870], ['Hortifruti Primavera', 13, 2650], ['Empório Central', 19, 6700]];
+    // Compromissos fixos dos próximos meses (folha, imposto) para o fluxo de caixa
+    for (let k = 0; k < 3; k++) {
+      const m = addMonths(monthStart(today), k + 1);
+      insB.run(orgId, 'pagar', 'Folha de pagamento', addDays(m, 4), 34800, null);
+      insB.run(orgId, 'pagar', 'Simples Nacional (DAS)', addDays(m, 19), 21600 + k * 900, null);
+    }
+    insB.run(orgId, 'pagar', 'Distribuidora Sul Grãos', addDays(today, 22), 31200, null);
     rec.forEach(([p, d, v]) => insB.run(orgId, 'receber', byName[p] ? p : p, addDays(today, d), v, null));
   });
   tx();
+  saveSettings(orgId, { cash: { balance: 88000, date: today, minimum: 60000 } });
   return { ref: REF };
 }
 

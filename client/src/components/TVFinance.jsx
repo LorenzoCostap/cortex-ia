@@ -69,8 +69,8 @@ function DivergingChart({ buckets, hide }) {
   );
 }
 
-function LineChart({ points, labels, color }) {
-  const max = Math.max(...points, 1), min = Math.min(...points, 0);
+function LineChart({ points, labels, color, floor }) {
+  const max = Math.max(...points, floor || 0, 1), min = Math.min(...points, 0);
   const step = niceStep(max - min, 3);
   const hi = Math.ceil(max / step) * step, lo = Math.floor(min / step) * step;
   const y = (v) => 100 - ((v - lo) / (hi - lo || 1)) * 100;
@@ -88,6 +88,7 @@ function LineChart({ points, labels, color }) {
           <svg aria-hidden="true" viewBox="0 0 1000 100" preserveAspectRatio="none" style={{ position: 'absolute', inset: 0, width: '100%', height: '100%' }}>
             <path d={`M${(x(0) * 10).toFixed(1)},100 L${pts.replace(/ /g, ' L')} L${(x(points.length - 1) * 10).toFixed(1)},100 Z`} fill={color} opacity="0.08" />
             <polyline points={pts} fill="none" stroke={color} strokeWidth="3" strokeLinejoin="round" vectorEffect="non-scaling-stroke" />
+            {floor > 0 && <line x1="0" x2="1000" y1={y(floor)} y2={y(floor)} stroke="#FBBF24" strokeWidth="2" strokeDasharray="8 8" vectorEffect="non-scaling-stroke" />}
           </svg>
           {points.map((v, i) => <span key={i} style={{ position: 'absolute', left: `${x(i)}%`, top: `${y(v)}%`, width: 10, height: 10, margin: '-5px 0 0 -5px', borderRadius: '50%', background: '#0E0E10', border: `2px solid ${color}` }} />)}
         </div>
@@ -102,6 +103,7 @@ export default function TVFinance({ data, goal, periodText, hide, widget }) {
   const vs = `vs ${d.previousLabel.split(' ')[0].toLowerCase()}`;
   const money = (v) => (hide ? '•••' : brl(v));
   const fc = data.forecast;
+  const cf = data.cashflow;
   const targetMargin = data.targets?.netMargin ?? 18;
   const last = d.series[d.series.length - 1];
   const revGoal = last?.goal || 0;
@@ -171,10 +173,12 @@ export default function TVFinance({ data, goal, periodText, hide, widget }) {
       <div style={{ flex: 1, minHeight: 0, display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1.05fr)', gap: 16 }}>
         <section style={{ ...box, padding: '18px 24px', display: 'flex', flexDirection: 'column', gap: 10 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
-            <h2 style={{ fontSize: 22, fontWeight: 600 }}>Lucro acumulado · 12 meses</h2>
-            <span style={{ fontFamily: 'var(--mono)', fontSize: 20, color: '#6EE7B7' }}>{hide ? '•••' : brlK(cumulative[cumulative.length - 1] || 0)}</span>
+            <h2 style={{ fontSize: 22, fontWeight: 600 }}>{cf ? 'Saldo em caixa · próximos 90 dias' : 'Lucro acumulado · 12 meses'}</h2>
+            <span style={{ fontFamily: 'var(--mono)', fontSize: 20, color: cf?.firstBelow ? '#FCD34D' : '#6EE7B7' }}>{hide ? '•••' : brlK(cf ? cf.balance : cumulative[cumulative.length - 1] || 0)}</span>
           </div>
-          {hide ? <p style={{ fontSize: 18, color: C.dim }}>Valores ocultos nesta TV.</p> : <LineChart points={cumulative} labels={d.series.map((s) => s.label)} color={C.pos} />}
+          {hide ? <p style={{ fontSize: 18, color: C.dim }}>Valores ocultos nesta TV.</p>
+            : cf ? <LineChart points={[cf.balance, ...cf.weeks.map((w) => w.balance)]} labels={['hoje', ...cf.weeks.map((w, i) => (i % 3 === 2 ? w.label : ''))]} color={cf.firstBelow ? '#FBBF24' : C.pos} floor={cf.minimum} />
+            : <LineChart points={cumulative} labels={d.series.map((s) => s.label)} color={C.pos} />}
         </section>
 
         <section style={{ ...box, padding: '18px 24px', display: 'flex', flexDirection: 'column', gap: 4 }} aria-labelledby="tv-dre">
