@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../api.js';
 import { useAuth } from '../auth.jsx';
+import PrintButton from '../components/PrintButton.jsx';
 import { PageHead } from '../components/Layout.jsx';
 import { Icon, Spinner, ErrorBox, KpiSkeleton, Modal, useAsync, useToast } from '../components/ui.jsx';
 import { brl, brlK, brDate } from '../format.js';
@@ -151,6 +152,7 @@ export default function CashFlow() {
         <div className="seg" role="group" aria-label="Horizonte">
           {[30, 60, 90].map((x) => <button key={x} type="button" aria-pressed={h === x} onClick={() => setH(x)}>{x} dias</button>)}
         </div>
+        <PrintButton />
         <button className="btn" onClick={() => setEdit(true)} disabled={!d}><Icon name="wallet" size={16} color="var(--muted)" />Atualizar saldo</button>
         <button className="btn" onClick={() => exportCsv(d)} disabled={!d}><Icon name="download" size={16} color="var(--muted)" />Exportar</button>
       </PageHead>

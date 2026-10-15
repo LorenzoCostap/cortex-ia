@@ -61,7 +61,7 @@ export default function PeriodPicker({ value, onChange, today, id = 'periodo' })
   const custom = value.preset === 'custom';
 
   return (
-    <div className="toolbar" style={{ alignItems: 'flex-start' }}>
+    <div className="toolbar no-print" style={{ alignItems: 'flex-start' }}>
       <div className="seg" role="group" aria-label="Período">
         {PRESETS.map((p) => (
           <button key={p.id} type="button" aria-pressed={value.preset === p.id} onClick={() => { setText(''); onChange({ preset: p.id, ...presetRange(p.id, today) }); }}>{p.label}</button>

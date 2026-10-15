@@ -71,9 +71,13 @@ export default function Layout({ children }) {
 }
 
 export function PageHead({ eyebrow, title, children }) {
+  const { me } = useAuth();
   return (
     <header className="page-head">
-      <div><p className="eyebrow">{eyebrow}</p><h1 className="page-title">{title}</h1></div>
+      <div>
+        <p className="print-only" style={{ fontSize: 12, color: '#6b6b76', marginBottom: 6 }}>{me?.org?.name} · gerado pelo Cortex em {new Date().toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' })}</p>
+        <p className="eyebrow">{eyebrow}</p><h1 className="page-title">{title}</h1>
+      </div>
       {children && <div className="toolbar">{children}</div>}
     </header>
   );

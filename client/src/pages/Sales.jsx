@@ -2,6 +2,7 @@ import { Link } from 'react-router-dom';
 import { useMemo, useState } from 'react';
 import { api } from '../api.js';
 import { useAuth } from '../auth.jsx';
+import PrintButton from '../components/PrintButton.jsx';
 import { PageHead } from '../components/Layout.jsx';
 import CompareToggle, { useCompare } from '../components/CompareToggle.jsx';
 import { Icon, Kpi, KpiSkeleton, ErrorBox, Empty, useAsync } from '../components/ui.jsx';
@@ -67,6 +68,7 @@ export default function Sales() {
     <>
       <PageHead eyebrow="Análise comercial" title="Vendas e indicadores">
         <CompareToggle value={cmp} onChange={setCmp} prevLabel="Período anterior" />
+        <PrintButton />
         <button className="btn" onClick={exportCsv} disabled={!d}><Icon name="download" size={16} color="var(--muted)" />Exportar CSV</button>
       </PageHead>
       <PeriodPicker value={period} onChange={setPeriod} today={me.today} id="vendas-periodo" />

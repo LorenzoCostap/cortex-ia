@@ -113,6 +113,8 @@ O que o Cortex precisa para calcular tudo:
 - **Alertas:** o Cortex vigia clientes fora do ritmo, meta em risco, saldo abaixo do mínimo, contas vencidas e produtos em queda (a cada 15 minutos). O contador aparece no menu; as regras se ligam e desligam na própria tela.
 - **Resumo diário por e-mail:** em Alertas, informe uma conta Gmail e uma [senha de app](https://myaccount.google.com/apppasswords) (exige verificação em duas etapas), os destinatários e o horário. O computador precisa estar ligado com o Cortex rodando no horário do envio.
 - **Equipe comercial:** ranking dos vendedores contra a meta individual (com o traço de onde deveriam estar hoje), regiões e destaques da semana. Também vira uma tela da TV.
+- **Orçamento de despesas:** em Metas › Orçamento de despesas, defina quanto pode gastar por categoria (folha, aluguel, frete…). O botão “Sugerir pela média de 3 meses” preenche tudo; categoria acima do orçado gera alerta e a TV passa a comparar com esse orçamento.
+- **PDF:** Dashboard, Vendas, Equipe e Fluxo de caixa têm o botão **Exportar PDF** (abre a impressão em A4 deitado, tema claro — escolha “Salvar como PDF”).
 - **Fluxo de caixa:** informe o saldo de hoje e o mínimo de segurança; o Cortex projeta 30, 60 ou 90 dias com as contas a pagar e a receber e a média de vendas das últimas 12 semanas, avisa quando o saldo vai ficar abaixo do mínimo e permite dar baixa nas contas. Com o saldo informado, a TV mostra o saldo projetado.
 
 ## Comandos

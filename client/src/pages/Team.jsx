@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../api.js';
 import { useAuth } from '../auth.jsx';
+import PrintButton from '../components/PrintButton.jsx';
 import { PageHead } from '../components/Layout.jsx';
 import { Icon, ErrorBox, KpiSkeleton, useAsync } from '../components/ui.jsx';
 import { brl, brlK, num, initials } from '../format.js';
@@ -60,6 +61,7 @@ export default function Team() {
         <select id="team-month" className="select" style={{ width: 'auto', minHeight: 42 }} value={month} onChange={(e) => setMonth(e.target.value)}>
           {monthOptions(me.today).map(([k, l]) => <option key={k} value={k}>{l}</option>)}
         </select>
+        <PrintButton />
         {me.permissions.metas && <Link to="/metas" className="btn"><Icon name="target" size={16} color="var(--muted)" />Metas por vendedor</Link>}
       </PageHead>
       {q.error && <ErrorBox error={q.error} onRetry={q.reload} />}

@@ -208,11 +208,28 @@ table.table { width: 100%; border-collapse: collapse; font-size: 14px; }
 .md strong { color: var(--text); }
 .md code { font-family: var(--mono); background: var(--card-3); padding: 2px 6px; border-radius: 5px; font-size: 13px; }
 
+.print-only { display: none; }
 @media print {
-  .side, .no-print, .toasts { display: none !important; }
-  body { background: #fff; color: #111; }
-  .main { padding: 0; }
-  .card { border-color: #ddd; background: #fff; }
+  :root, :root[data-theme='light'] {
+    --bg: #fff; --side: #fff; --card: #fff; --card-2: #f6f6f8; --card-3: #ececf1;
+    --line: #e1e1e8; --line-2: #d4d4dc; --line-soft: #ececf1;
+    --text: #16161a; --text-2: #34343c; --muted: #5c5c66; --dim: #6b6b76;
+    --violet-soft: #f3efff; --violet-line: #d4c8fb; --violet-text: #5b34d1; --violet-text-2: #4a28b5;
+    --violet-bar: #7c5ce6; --violet-dark: #b9a7f5;
+    --green-text: #047857; --green-bg: #d1fae5; --red-text: #b91c1c; --red-bg: #fee2e2; --red-line: #fecaca;
+    --amber-text: #92400e; --amber-bg: #fef3c7; --amber-line: #fde68a;
+    color-scheme: light;
+  }
+  * { animation: none !important; transition: none !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  .side, .no-print, .toasts, .page-head .toolbar, .seg, .nav-count { display: none !important; }
+  .print-only { display: block; }
+  html, body, .app { background: #fff !important; color: #16161a; }
+  .app { display: block; }
+  .main { padding: 0 !important; max-width: none !important; zoom: 0.72; }
+  .btn, .eyebrow { display: none !important; }
+  .card, .kpi, figure, section { break-inside: avoid; page-break-inside: avoid; }
+  .card, .kpi { border-color: #ddd !important; background: #fff !important; box-shadow: none !important; }
+  a { color: inherit; text-decoration: none; }
 }
 .nav-count { margin-left: auto; min-width: 20px; height: 20px; padding: 0 6px; border-radius: 999px; background: #6d3fe0; color: #fff; font-size: 11px; font-weight: 600; display: inline-flex; align-items: center; justify-content: center; }
 .chips { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; padding: 6px; border-radius: 10px; border: 1px solid var(--line-2); background: var(--side); min-height: 44px; }
