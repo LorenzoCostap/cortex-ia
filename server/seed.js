@@ -1,4 +1,4 @@
-// Gera uma empresa fictícia (Grupo Valmar) com ~13 meses de vendas, despesas, contas e metas.
+// Gera uma empresa fictícia (Grupo Valmar) com ~2 anos de vendas, despesas, contas e metas.
 // Os dados são relativos à data de hoje: o "mês de referência" é sempre o último mês completo,
 // e ele tem uma queda proposital para a IA ter o que explicar.
 import { db, logEvent, saveSettings } from './db.js';
@@ -57,7 +57,8 @@ export function generateDemoData(orgId, today = todayStr()) {
   };
   const REF = refMonth(today);
   const refStart = monthStart(REF), refEnd = monthEnd(REF);
-  const firstDay = addMonths(REF, -11);
+  const firstDay = addMonths(REF, -23); // 2 anos: permite comparar com o ano anterior
+  const goalStart = addMonths(REF, -11);
 
   const tx = db.transaction(() => {
     clearOrgData(orgId);
@@ -102,7 +103,7 @@ export function generateDemoData(orgId, today = todayStr()) {
       const keep = (c) => {
         if (c.name === 'Mercado Bom Preço' && day > bomPrecoLast) return 0;
         if (!inRef) return 1;
-        return { 'Mercado Bom Preço': 0.55, 'Rede SuperSul': 0.78, 'Empório Central': 0.85, 'Padaria Trigo Fino': 0.88 }[c.name] ?? 1;
+        return { 'Mercado Bom Preço': 0.4, 'Rede SuperSul': 0.62, 'Empório Central': 0.75, 'Padaria Trigo Fino': 0.8 }[c.name] ?? 1;
       };
       const dayOfMonth = +day.slice(8, 10);
       const keepP = (p) => {
@@ -154,7 +155,7 @@ export function generateDemoData(orgId, today = todayStr()) {
     // Metas mensais
     const insG = db.prepare('INSERT INTO goals (org_id, month, revenue_target) VALUES (?, ?, ?)');
     for (let i = 0; i < 12; i++) {
-      const key = monthKey(addMonths(firstDay, i));
+      const key = monthKey(addMonths(goalStart, i));
       insG.run(orgId, key, Math.round(((monthlyRevenue[key] || 0) * GOAL_FACTORS[i]) / 1000) * 1000);
     }
     const refTarget = Math.round(((monthlyRevenue[monthKey(REF)] || 0) * 1.09) / 1000) * 1000;

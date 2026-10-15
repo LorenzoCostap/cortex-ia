@@ -6,34 +6,48 @@ import { PageHead } from '../components/Layout.jsx';
 import { Icon, Kpi, KpiSkeleton, CardSkeleton, ErrorBox, useAsync } from '../components/ui.jsx';
 import PeriodPicker, { periodLabel, loadSavedPeriod, savePeriod } from '../components/PeriodPicker.jsx';
 import RevenueGoalChart, { GoalLegend } from '../components/RevenueGoalChart.jsx';
+import CompareToggle, { useCompare } from '../components/CompareToggle.jsx';
+import IncomeExpenseChart, { IncomeLegend } from '../components/IncomeExpenseChart.jsx';
 import { brl, brlK, delta, toneOf, num, initials } from '../format.js';
 
 const SEV = { alta: '#F87171', media: '#FBBF24', info: '#8B6CF0', pos: '#34D399' };
 
-function GoalCard({ today, fallback }) {
+function GoalCard({ today, fallback, cmp }) {
   const [period, setPeriodState] = useState(() => loadSavedPeriod(today, fallback));
   const setPeriod = (v) => { setPeriodState(v); savePeriod(v); };
   const g = useAsync(() => api(`/goal-series?from=${period.from}&to=${period.to}`), [period.from, period.to]);
   const unit = { dia: 'por dia', semana: 'por semana', mes: 'por mês' }[g.data?.unit] || '';
+  const [view, setViewState] = useState(() => { try { return localStorage.getItem('cortex.dash.view') || 'meta'; } catch { return 'meta'; } });
+  const setView = (v) => { setViewState(v); try { localStorage.setItem('cortex.dash.view', v); } catch { /* sem storage */ } };
+  const tot = (g.data?.buckets || []).reduce((a, b) => ({ rev: a.rev + b.revenue, exp: a.exp + b.expenses }), { rev: 0, exp: 0 });
 
   return (
     <section className="card" aria-labelledby="goal-title" style={{ flex: '2 1 560px' }}>
       <div className="card-head">
         <div>
-          <h2 id="goal-title" className="card-title">Receita × meta</h2>
+          <h2 id="goal-title" className="card-title">{view === 'meta' ? 'Receita × meta' : 'Receitas × despesas'}</h2>
           <p className="card-sub">{periodLabel(period)} {unit && `· ${unit}`} · passe o mouse sobre as barras · o modo TV usa este mesmo período</p>
         </div>
-        {g.data && (
+        <div className="seg" role="group" aria-label="Visão do gráfico">
+          <button type="button" aria-pressed={view === 'meta'} onClick={() => setView('meta')}>Receita × meta</button>
+          <button type="button" aria-pressed={view === 'despesas'} onClick={() => setView('despesas')}>Receitas × despesas</button>
+        </div>
+        {g.data && view === 'despesas' && (
+          <span className="badge" style={{ padding: '6px 12px', fontSize: 13 }}>
+            Lucro <strong style={{ color: tot.rev - tot.exp >= 0 ? 'var(--green-text)' : 'var(--red-text)' }}>{brlK(tot.rev - tot.exp)}</strong> · margem {num(tot.rev ? ((tot.rev - tot.exp) / tot.rev) * 100 : 0, 1)}%
+          </span>
+        )}
+        {g.data && view === 'meta' && (
           <span className="badge" style={{ padding: '6px 12px', fontSize: 13 }}>
             <strong style={{ color: 'var(--text)' }}>{num(g.data.achieved, 1)}%</strong> da meta · {g.data.hits} de {g.data.buckets.filter((b) => b.goal).length} {g.data.unit === 'mes' ? 'meses' : g.data.unit === 'semana' ? 'semanas' : 'dias'} batidos
           </span>
         )}
       </div>
       <PeriodPicker value={period} onChange={setPeriod} today={today} id="dash-periodo" />
-      <GoalLegend />
+      {view === 'meta' ? <GoalLegend lastYear={cmp === 'ano'} /> : <IncomeLegend />}
       {g.error ? <ErrorBox error={g.error} onRetry={g.reload} /> : !g.data ? <div className="skel" style={{ height: 290 }} /> : (
         <div style={{ opacity: g.loading ? 0.5 : 1, transition: 'opacity .2s' }}>
-          <RevenueGoalChart buckets={g.data.buckets} />
+          {view === 'meta' ? <RevenueGoalChart buckets={g.data.buckets} lastYear={cmp === 'ano'} /> : <IncomeExpenseChart buckets={g.data.buckets} />}
         </div>
       )}
     </section>
@@ -42,16 +56,18 @@ function GoalCard({ today, fallback }) {
 
 export default function Dashboard() {
   const { me } = useAuth();
-  const d = useAsync(() => api('/dashboard'), []);
+  const [cmp, setCmp] = useCompare();
+  const d = useAsync(() => api(`/dashboard?cmp=${cmp}`), [cmp]);
   const hour = new Date().getHours();
   const hello = hour < 12 ? 'Bom dia' : hour < 18 ? 'Boa tarde' : 'Boa noite';
-  const k = d.data?.kpis, dl = d.data?.deltas, prevShort = d.data?.previousLabel?.split(' ')[0].toLowerCase();
+  const k = d.data?.kpis, dl = d.data?.deltas, prevShort = d.data?.compareShort;
 
   return (
     <>
       <PageHead eyebrow={`${hello}, ${me.user.name.split(' ')[0]}`} title="Dashboard">
         {me.org.isDemo && <span className="badge demo">Dados de demonstração</span>}
         {d.data && <span className="badge" style={{ padding: '8px 12px', fontSize: 13 }}><Icon name="calendar" size={15} color="var(--muted)" />{d.data.label} <span className="dim">vs {prevShort}</span></span>}
+        <CompareToggle value={cmp} onChange={setCmp} />
       </PageHead>
 
       {d.error && <ErrorBox error={d.error} onRetry={d.reload} />}
@@ -72,7 +88,7 @@ export default function Dashboard() {
       )}
 
       <div className="row">
-        <GoalCard today={me.today} fallback={me.tv?.goalPeriod} />
+        <GoalCard today={me.today} fallback={me.tv?.goalPeriod} cmp={cmp} />
         <section className="card" aria-labelledby="ai-title" style={{ flex: '1 1 320px' }}>
           <div>
             <h2 id="ai-title" className="card-title"><Icon name="sparkle" size={16} color="var(--violet-text)" />Insights do Cortex</h2>
@@ -116,7 +132,7 @@ export default function Dashboard() {
                 {d.data.decliningCustomers.map((c) => (
                   <li key={c.name}>
                     <span className="avatar sq">{initials(c.name)}</span>
-                    <span style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 2 }}><span>{c.name}</span><span className="dim" style={{ fontSize: 12 }}>Último pedido {c.daysSinceLastOrder === 0 ? 'hoje' : `há ${c.daysSinceLastOrder} dias`}</span></span>
+                    <span style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 2 }}>{me.permissions.vendas ? <Link to={`/clientes/${c.id}`} style={{ color: 'var(--text)' }}>{c.name}</Link> : <span>{c.name}</span>}<span className="dim" style={{ fontSize: 12 }}>Último pedido {c.daysSinceLastOrder === 0 ? 'hoje' : `há ${c.daysSinceLastOrder} dias`}</span></span>
                     <span className="mono neg" style={{ fontSize: 13 }}>{delta(c.change).replace('▼ ', '−')}</span>
                   </li>
                 ))}

@@ -1,14 +1,16 @@
+import { Link } from 'react-router-dom';
 import { useMemo, useState } from 'react';
 import { api } from '../api.js';
 import { useAuth } from '../auth.jsx';
 import { PageHead } from '../components/Layout.jsx';
+import CompareToggle, { useCompare } from '../components/CompareToggle.jsx';
 import { Icon, Kpi, KpiSkeleton, ErrorBox, Empty, useAsync } from '../components/ui.jsx';
 import PeriodPicker, { presetRange, periodLabel } from '../components/PeriodPicker.jsx';
 import { brl, brlK, delta, toneOf, num, brDate } from '../format.js';
 
 const CAT_COLORS = ['#A78BFA', '#7C63D8', '#5A4A9E', '#4A4A56', '#33333C'];
 
-function DailyChart({ daily }) {
+function DailyChart({ daily, yoy = false }) {
   const [hover, setHover] = useState(null);
   const W = 800, H = 240;
   const vals = daily.flatMap((d) => [d.revenue, d.previous || 0]);
@@ -35,7 +37,7 @@ function DailyChart({ daily }) {
         <div style={{ position: 'absolute', top: 8, [hover < daily.length / 2 ? 'left' : 'right']: `calc(${hover < daily.length / 2 ? (x(hover) / W) * 100 : 100 - (x(hover) / W) * 100}% + 12px)`, padding: '10px 12px', borderRadius: 10, background: 'var(--card-3)', border: '1px solid var(--line-2)', fontSize: 12, pointerEvents: 'none', display: 'flex', flexDirection: 'column', gap: 4, minWidth: 150 }}>
           <strong style={{ fontSize: 13 }}>{h.unit === 'semana' ? `Semana de ${brDate(h.date)}` : brDate(h.date)}</strong>
           <span style={{ display: 'flex', justifyContent: 'space-between', gap: 12 }}><span className="muted">Período</span><span className="mono">{brl(h.revenue)}</span></span>
-          {h.previous !== null && <span style={{ display: 'flex', justifyContent: 'space-between', gap: 12 }}><span className="muted">{h.unit === 'semana' ? 'Mesma semana antes' : 'Mesmo dia da semana antes'}</span><span className="mono">{brl(h.previous)}</span></span>}
+          {h.previous !== null && <span style={{ display: 'flex', justifyContent: 'space-between', gap: 12 }}><span className="muted">{yoy ? (h.unit === 'semana' ? 'Mesma semana do ano anterior' : 'Mesmo dia do ano anterior') : h.unit === 'semana' ? 'Mesma semana antes' : 'Mesmo dia da semana antes'}</span><span className="mono">{brl(h.previous)}</span></span>}
         </div>
       )}
       <div aria-hidden="true" style={{ display: 'flex', justifyContent: 'space-between', fontFamily: 'var(--mono)', fontSize: 11, color: 'var(--dim)', paddingTop: 8 }}>
@@ -49,7 +51,10 @@ export default function Sales() {
   const { me } = useAuth();
   const [period, setPeriod] = useState(() => ({ preset: '30d', ...presetRange('30d', me.today) }));
   const [q, setQ] = useState('');
-  const s = useAsync(() => api(`/sales?from=${period.from}&to=${period.to}`), [period.from, period.to]);
+  const [allCustomers, setAllCustomers] = useState(false);
+  const [cmp, setCmp] = useCompare();
+  const s = useAsync(() => api(`/sales?from=${period.from}&to=${period.to}&cmp=${cmp}`), [period.from, period.to, cmp]);
+  const vsNote = cmp === 'ano' ? 'vs ano anterior' : 'vs anterior';
   const d = s.data;
   const rows = useMemo(() => (d?.products || []).filter((p) => p.name.toLowerCase().includes(q.toLowerCase())), [d, q]);
   const exportCsv = () => {
@@ -61,6 +66,7 @@ export default function Sales() {
   return (
     <>
       <PageHead eyebrow="Análise comercial" title="Vendas e indicadores">
+        <CompareToggle value={cmp} onChange={setCmp} prevLabel="Período anterior" />
         <button className="btn" onClick={exportCsv} disabled={!d}><Icon name="download" size={16} color="var(--muted)" />Exportar CSV</button>
       </PageHead>
       <PeriodPicker value={period} onChange={setPeriod} today={me.today} id="vendas-periodo" />
@@ -71,11 +77,11 @@ export default function Sales() {
       {d && d.kpis.orders > 0 && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 24, opacity: s.loading ? 0.55 : 1, transition: 'opacity .2s' }}>
           <section className="grid-kpi" aria-label="Indicadores de vendas">
-            <Kpi label="Faturamento" value={brl(d.kpis.revenue)} delta={delta(d.deltas.revenue)} tone={toneOf(d.deltas.revenue)} note="vs anterior" />
-            <Kpi label="Pedidos" value={num(d.kpis.orders)} delta={delta(d.deltas.orders)} tone={toneOf(d.deltas.orders)} note="vs anterior" delay={0.05} />
-            <Kpi label="Ticket médio" value={brl(d.kpis.avgTicket)} delta={delta(d.deltas.avgTicket)} tone={toneOf(d.deltas.avgTicket)} note="vs anterior" delay={0.1} />
-            <Kpi label="Clientes ativos" value={num(d.kpis.activeCustomers)} delta={delta(d.deltas.activeCustomers)} tone={toneOf(d.deltas.activeCustomers)} note="vs anterior" delay={0.15} />
-            <Kpi label="Margem bruta" value={`${num(d.kpis.grossMargin, 1)}%`} delta={delta(d.deltas.grossMarginPp, { pp: true })} tone={toneOf(d.deltas.grossMarginPp)} note="vs anterior" delay={0.2} />
+            <Kpi label="Faturamento" value={brl(d.kpis.revenue)} delta={delta(d.deltas.revenue)} tone={toneOf(d.deltas.revenue)} note={vsNote} />
+            <Kpi label="Pedidos" value={num(d.kpis.orders)} delta={delta(d.deltas.orders)} tone={toneOf(d.deltas.orders)} note={vsNote} delay={0.05} />
+            <Kpi label="Ticket médio" value={brl(d.kpis.avgTicket)} delta={delta(d.deltas.avgTicket)} tone={toneOf(d.deltas.avgTicket)} note={vsNote} delay={0.1} />
+            <Kpi label="Clientes ativos" value={num(d.kpis.activeCustomers)} delta={delta(d.deltas.activeCustomers)} tone={toneOf(d.deltas.activeCustomers)} note={vsNote} delay={0.15} />
+            <Kpi label="Margem bruta" value={`${num(d.kpis.grossMargin, 1)}%`} delta={delta(d.deltas.grossMarginPp, { pp: true })} tone={toneOf(d.deltas.grossMarginPp)} note={vsNote} delay={0.2} />
           </section>
 
           <div className="row">
@@ -84,10 +90,10 @@ export default function Sales() {
                 <div><h2 id="fd" className="card-title">{d.daily[0]?.unit === 'semana' ? 'Faturamento semanal' : 'Faturamento diário'}</h2><p className="card-sub">{periodLabel(period)} · {brDate(d.from)} a {brDate(d.to)}</p></div>
                 <div style={{ display: 'flex', gap: 16, fontSize: 13, color: 'var(--muted)' }}>
                   <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><span style={{ width: 14, height: 2, background: 'var(--violet-bar)' }} />Período</span>
-                  <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><span style={{ width: 14, borderTop: '2px dashed #6B6B78' }} />Período anterior (mesmo dia da semana)</span>
+                  <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><span style={{ width: 14, borderTop: '2px dashed #6B6B78' }} />{cmp === 'ano' ? 'Ano anterior (mesmo dia da semana)' : 'Período anterior (mesmo dia da semana)'}</span>
                 </div>
               </div>
-              <DailyChart daily={d.daily} />
+              <DailyChart daily={d.daily} yoy={cmp === 'ano'} />
             </section>
             <section className="card" style={{ flex: '1 1 300px' }} aria-labelledby="cat">
               <h2 id="cat" className="card-title">Receita por categoria</h2>
@@ -104,7 +110,7 @@ export default function Sales() {
 
           <section className="card" aria-labelledby="abc" style={{ paddingBottom: 12 }}>
             <div className="card-head">
-              <div><h2 id="abc" className="card-title">Produtos — curva ABC</h2><p className="card-sub">Classe A: 80% da receita · variação contra o período anterior</p></div>
+              <div><h2 id="abc" className="card-title">Produtos — curva ABC</h2><p className="card-sub">Classe A: 80% da receita · variação contra {cmp === 'ano' ? 'o mesmo período do ano anterior' : 'o período anterior'}</p></div>
               <label style={{ display: 'flex', alignItems: 'center', gap: 8, minHeight: 40, padding: '0 12px', borderRadius: 10, border: '1px solid var(--line-2)', background: 'var(--side)' }}>
                 <Icon name="search" size={16} color="var(--dim)" /><span className="sr">Buscar produto</span>
                 <input type="search" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Buscar produto" style={{ border: 0, outline: 'none', background: 'transparent', width: 180 }} />
@@ -124,6 +130,30 @@ export default function Sales() {
                     </tr>
                   ))}
                   {!rows.length && <tr><td colSpan={7} className="muted" style={{ textAlign: 'center', padding: 24 }}>Nenhum produto encontrado para “{q}”.</td></tr>}
+                </tbody>
+              </table>
+            </div>
+          </section>
+
+          <section className="card" aria-labelledby="cli" style={{ paddingBottom: 12 }}>
+            <div className="card-head">
+              <div><h2 id="cli" className="card-title">Clientes</h2><p className="card-sub">Maiores compradores do período · clique para ver o histórico</p></div>
+              {d.customers.length > 12 && <button className="btn sm" onClick={() => setAllCustomers((v) => !v)}>{allCustomers ? 'Mostrar menos' : `Mostrar ${d.customers.length}`}</button>}
+            </div>
+            <div className="table-wrap">
+              <table className="table" style={{ minWidth: 720 }}>
+                <thead><tr><th>Cliente</th><th>Vendedor</th><th style={{ textAlign: 'right' }}>Pedidos</th><th style={{ textAlign: 'right' }}>Receita</th><th style={{ textAlign: 'right' }}>Part.</th><th style={{ textAlign: 'right' }}>Var.</th><th style={{ textAlign: 'right' }}>Último pedido</th></tr></thead>
+                <tbody>
+                  {d.customers.slice(0, allCustomers ? undefined : 12).map((c) => (
+                    <tr key={c.id}>
+                      <td><Link to={`/clientes/${c.id}`} style={{ color: 'var(--text)' }}>{c.name}</Link></td>
+                      <td className="muted">{c.seller || '—'}</td>
+                      <td className="num">{num(c.orders)}</td><td className="num">{brl(c.revenue)}</td>
+                      <td className="num" style={{ color: 'var(--text-2)' }}>{num(c.share, 1)}%</td>
+                      <td className={`num ${toneOf(c.change)}`}>{c.change === null ? 'novo' : `${c.change > 0 ? '+' : '−'}${num(Math.abs(c.change), 1)}%`}</td>
+                      <td className="num" style={{ color: 'var(--text-2)' }}>{brDate(c.lastOrder)}</td>
+                    </tr>
+                  ))}
                 </tbody>
               </table>
             </div>

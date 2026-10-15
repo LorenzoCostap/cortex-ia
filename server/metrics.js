@@ -1,5 +1,6 @@
 // Todas as contas do Cortex ficam aqui. A IA nunca calcula nada: ela chama estas funções e interpreta o resultado.
 import { db } from './db.js';
+import { customerTable } from './customers.js';
 import { todayStr, addDays, addMonths, monthStart, monthEnd, monthKey, monthLabel, daysBetween, refMonth, weekRange, isoWeek, brDate } from './dates.js';
 
 const r2 = (v) => Math.round((v || 0) * 100) / 100;
@@ -43,6 +44,16 @@ export function periodSummary(org, from, to) {
   };
 }
 
+/** Mesma data um ano antes (29/02 vira 28/02). */
+const shiftYear = (s) => { const t = `${+s.slice(0, 4) - 1}${s.slice(4)}`; return t.endsWith('-02-29') ? t.replace('-29', '-28') : t; };
+
+/** Período de comparação: 'anterior' (padrão) ou 'ano' (mesmo período do ano anterior; dias alinhados pelo dia da semana). */
+export function comparisonPeriod(from, to, cmp) {
+  if (cmp !== 'ano') return previousPeriod(from, to);
+  if (from === monthStart(from) && to === monthEnd(from)) { const p = addMonths(from, -12); return { from: p, to: monthEnd(p) }; }
+  return { from: addDays(from, -364), to: addDays(to, -364) };
+}
+
 export function previousPeriod(from, to) {
   // Mês fechado -> mês anterior inteiro; senão, mesmo número de dias imediatamente antes.
   if (from === monthStart(from) && to === monthEnd(from)) {
@@ -79,8 +90,8 @@ function productRows(org, from, to) {
     WHERE o.org_id = ? AND o.date BETWEEN ? AND ? GROUP BY p.id`).all(org, from, to);
 }
 
-export function productTable(org, from, to) {
-  const prev = previousPeriod(from, to);
+export function productTable(org, from, to, cmp) {
+  const prev = comparisonPeriod(from, to, cmp);
   const cur = productRows(org, from, to);
   const before = Object.fromEntries(productRows(org, prev.from, prev.to).map((r) => [r.id, r]));
   const total = cur.reduce((s, r) => s + r.revenue, 0);
@@ -112,10 +123,10 @@ export function categoryBreakdown(org, from, to) {
   return rows.map((r) => ({ category: r.category, revenue: r2(r.revenue), share: total ? r2((r.revenue / total) * 100) : 0 }));
 }
 
-export function dailySeries(org, from, to) {
-  // Comparação alinhada por dia da semana: cada dia é comparado ao mesmo dia N semanas antes.
+export function dailySeries(org, from, to, cmp) {
+  // Comparação alinhada por dia da semana: cada dia é comparado ao mesmo dia N semanas antes (ou 52 semanas, no ano anterior).
   const span = daysBetween(from, to) + 1;
-  const step = 7 * Math.ceil(span / 7);
+  const step = cmp === 'ano' ? 364 : 7 * Math.ceil(span / 7);
   const q = db.prepare('SELECT date, SUM(total) revenue FROM orders WHERE org_id = ? AND date BETWEEN ? AND ? GROUP BY date');
   const rev = Object.fromEntries(q.all(org, addDays(from, -step), to).map((r) => [r.date, r.revenue]));
   const out = [];
@@ -154,7 +165,7 @@ export function customersDeclining(org, from, to, limit = 5) {
   return rows
     .map((r) => {
       const expected = (r.base / baseDays) * days;
-      return { name: r.name, revenue: r2(r.cur), expected: r2(expected), change: expected ? r2(((r.cur - expected) / expected) * 100) : null, lost: r2(expected - r.cur), lastOrder: lastAny.get(r.id).d };
+      return { id: r.id, name: r.name, revenue: r2(r.cur), expected: r2(expected), change: expected ? r2(((r.cur - expected) / expected) * 100) : null, lost: r2(expected - r.cur), lastOrder: lastAny.get(r.id).d };
     })
     .filter((r) => r.expected > 3000 && r.change !== null && r.change < -10)
     .sort((a, b) => b.lost - a.lost)
@@ -285,13 +296,14 @@ export function attentionIndicators(org) {
   return items.sort((a, b) => order[a.severity] - order[b.severity]);
 }
 
-export function dashboard(org, month) {
+export function dashboard(org, month, cmp) {
   const m = month || refMonth();
   const from = monthStart(m), to = monthEnd(m);
-  const prev = previousPeriod(from, to);
+  const prev = comparisonPeriod(from, to, cmp);
   const cur = periodSummary(org, from, to), before = periodSummary(org, prev.from, prev.to);
   return {
-    month: monthKey(m), label: monthLabel(m), previousLabel: monthLabel(prev.from),
+    month: monthKey(m), label: monthLabel(m), previousLabel: monthLabel(prev.from), cmp: cmp === 'ano' ? 'ano' : 'anterior',
+    compareShort: cmp === 'ano' ? `${monthLabel(prev.from, true)}/${prev.from.slice(2, 4)}` : monthLabel(prev.from).split(' ')[0].toLowerCase(),
     kpis: cur, previous: before, deltas: withDeltas(cur, before),
     receivables: receivablesSummary(org),
     series: monthlySeries(org, m, 12),
@@ -302,10 +314,10 @@ export function dashboard(org, month) {
   };
 }
 
-export function salesView(org, from, to) {
-  const prev = previousPeriod(from, to);
+export function salesView(org, from, to, cmp) {
+  const prev = comparisonPeriod(from, to, cmp);
   const cur = periodSummary(org, from, to), before = periodSummary(org, prev.from, prev.to);
-  return { from, to, previous: prev, kpis: cur, before, deltas: withDeltas(cur, before), daily: dailySeries(org, from, to), categories: categoryBreakdown(org, from, to), products: productTable(org, from, to) };
+  return { from, to, previous: prev, kpis: cur, before, deltas: withDeltas(cur, before), cmp: cmp === 'ano' ? 'ano' : 'anterior', daily: dailySeries(org, from, to, cmp), categories: categoryBreakdown(org, from, to), products: productTable(org, from, to, cmp), customers: customerTable(org, from, to, prev) };
 }
 
 /**
@@ -321,6 +333,7 @@ export function goalSeries(org, from, to) {
   const opexMonth = {};
   const opexDay = (d) => { const k = monthKey(d); if (opexMonth[k] === undefined) opexMonth[k] = operatingExpenses(org, monthStart(d), monthEnd(d)) / (daysBetween(monthStart(d), monthEnd(d)) + 1); return opexMonth[k]; };
   const rev = Object.fromEntries(revQ.map((r) => [r.date, r.v]));
+  const lyQ = db.prepare('SELECT COALESCE(SUM(total),0) v FROM orders WHERE org_id = ? AND date BETWEEN ? AND ?');
   const goals = Object.fromEntries(db.prepare('SELECT month, revenue_target FROM goals WHERE org_id = ?').all(org).map((g) => [g.month, g.revenue_target]));
   // A meta do mês é distribuída pelos dias úteis (sábado conta 30%, domingo não conta).
   const wDay = (d) => [0, 1, 1, 1, 1, 1, 0.3][new Date(d + 'T00:00:00Z').getUTCDay()];
@@ -350,6 +363,9 @@ export function goalSeries(org, from, to) {
     b.weekend = unit === 'dia' && wDay(b.from) === 0;
     // Mês/semana cortados pelo filtro: a meta acompanha só os dias dentro do filtro.
     b.revenue = r2(b.revenue); b.expenses = r2(b.expenses); b.profit = r2(b.revenue - b.expenses); b.goal = Math.round(b.goal);
+    const end = b.to < today ? b.to : today;
+    const ly = unit === 'mes' ? [shiftYear(b.from), shiftYear(end)] : [addDays(b.from, -364), addDays(end, -364)];
+    b.lastYear = b.from > today ? null : r2(lyQ.get(org, ly[0], ly[1]).v);
   }
   const totalRevenue = r2(buckets.reduce((s, b) => s + b.revenue, 0)), totalGoal = Math.round(buckets.reduce((s, b) => s + b.goal, 0));
   return { from, to, unit, buckets, totalRevenue, totalGoal, achieved: totalGoal ? r2((totalRevenue / totalGoal) * 100) : null, hits: buckets.filter((b) => b.goal && b.revenue >= b.goal).length };

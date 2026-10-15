@@ -14,6 +14,7 @@ import Sales from './pages/Sales.jsx';
 import Import from './pages/Import.jsx';
 import Goals from './pages/Goals.jsx';
 import CashFlow from './pages/CashFlow.jsx';
+import Customer from './pages/Customer.jsx';
 import Reports from './pages/Reports.jsx';
 import History from './pages/History.jsx';
 import Settings from './pages/Settings.jsx';
@@ -40,6 +41,7 @@ function AppRoutes() {
       <Route path="/" element={<Guard perm="dashboard"><Dashboard /></Guard>} />
       <Route path="/assistente" element={<Guard perm="assistente"><Assistant /></Guard>} />
       <Route path="/vendas" element={<Guard perm="vendas"><Sales /></Guard>} />
+      <Route path="/clientes/:id" element={<Guard perm="vendas"><Customer /></Guard>} />
       <Route path="/metas" element={<Guard perm="metas"><Goals /></Guard>} />
       <Route path="/fluxo-de-caixa" element={<Guard perm="fluxo"><CashFlow /></Guard>} />
       <Route path="/importacao" element={<Guard perm="importacao"><Import /></Guard>} />

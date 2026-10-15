@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { cashflow } from './cashflow.js';
+import { customerDetail } from './customers.js';
 import { db, getSettings, saveSettings, logEvent, MODULES, ROLES } from './db.js';
 import { loadUser, requireAuth, requirePerm, can, createSession, destroySession, verifyPassword, hashPassword, passwordProblem } from './auth.js';
 import * as M from './metrics.js';
@@ -70,7 +71,7 @@ app.post('/api/auth/password', requireAuth, (req, res) => {
 /* ---------- Painéis ---------- */
 app.get('/api/dashboard', requirePerm('dashboard'), (req, res) => {
   const m = /^\d{4}-\d{2}$/.test(req.query.month || '') ? `${req.query.month}-01` : undefined;
-  res.json({ ...M.dashboard(org(req), m), forecast: M.forecast(org(req)), insights: getInsights(org(req)) });
+  res.json({ ...M.dashboard(org(req), m, req.query.cmp), forecast: M.forecast(org(req)), insights: getInsights(org(req)) });
 });
 
 app.get('/api/goal-series', requirePerm('dashboard'), (req, res) => {
@@ -82,7 +83,7 @@ app.get('/api/goal-series', requirePerm('dashboard'), (req, res) => {
 app.get('/api/sales', requirePerm('vendas'), (req, res) => {
   let { from, to } = req.query;
   if (!isIso(from) || !isIso(to) || from > to) { const r = refMonth(); from = r; to = monthEnd(r); }
-  res.json(M.salesView(org(req), from, to));
+  res.json(M.salesView(org(req), from, to, req.query.cmp));
 });
 
 app.get('/api/insights', requireAuth, (req, res) => res.json({ questions: QUESTIONS, insights: getInsights(org(req)) }));
@@ -388,6 +389,13 @@ app.post('/api/goals/copy-last-year', requirePerm('metas'), (req, res) => {
     if (base > 0) out.push({ month: g.month, target: Math.round((base * (1 + pct / 100)) / 1000) * 1000 });
   }
   res.json({ suggestions: out });
+});
+
+/* ---------- Clientes ---------- */
+app.get('/api/customers/:id', requirePerm('vendas'), (req, res) => {
+  const c = customerDetail(org(req), req.params.id);
+  if (!c) return res.status(404).json({ error: 'Cliente não encontrado.' });
+  res.json(c);
 });
 
 /* ---------- Fluxo de caixa ---------- */

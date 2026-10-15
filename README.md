@@ -22,7 +22,7 @@ Abra **http://localhost:3210** e entre com:
 |---|---|---|
 | `grupo-valmar` | `marina@grupovalmar.com.br` | `cortex2026` |
 
-Na primeira execução o Cortex cria o banco (`data/cortex.db`) com 13 meses de dados fictícios.
+Na primeira execução o Cortex cria o banco (`data/cortex.db`) com 2 anos de dados fictícios.
 
 ### Modo TV
 
@@ -48,6 +48,8 @@ O modelo e o endereço podem ser trocados em **Configurações**. Sem o Ollama, 
 - **Importação automática:** aponte uma pasta (por exemplo, onde o ERP exporta) e o Cortex importa sozinho os arquivos novos. Pedidos com o mesmo número não são duplicados.
 - **Backup:** automático todo dia (horário e pasta configuráveis — use um pendrive ou HD externo), manual em um clique e restauração pela mesma tela.
 - **Metas:** por mês, por vendedor e por categoria, com previsão de fechamento do mês no ritmo atual.
+- **Comparações:** Dashboard e Vendas comparam com o período anterior ou com o mesmo período do ano anterior (botão no topo). O gráfico do Dashboard alterna entre Receita × meta e Receitas × despesas.
+- **Clientes:** em Vendas, clique num cliente (ou em “Clientes comprando menos” no Dashboard) para ver compras mês a mês contra o ano anterior, frequência, produtos que caíram, últimos pedidos e a leitura do Cortex.
 - **Fluxo de caixa:** informe o saldo de hoje e o mínimo de segurança; o Cortex projeta 30, 60 ou 90 dias com as contas a pagar e a receber e a média de vendas das últimas 12 semanas, avisa quando o saldo vai ficar abaixo do mínimo e permite dar baixa nas contas. Com o saldo informado, a TV mostra o saldo projetado.
 
 ## Comandos
