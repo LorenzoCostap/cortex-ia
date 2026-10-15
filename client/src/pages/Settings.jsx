@@ -5,8 +5,45 @@ import { PageHead } from '../components/Layout.jsx';
 import { Icon, Spinner, Switch, ErrorBox, useAsync, useToast } from '../components/ui.jsx';
 import { initials } from '../format.js';
 
-const SCREENS = [['overview', 'Visão geral'], ['vendas', 'Vendas e produtos'], ['clientes', 'Clientes'], ['financeiro', 'Financeiro', 'contém valores sensíveis'], ['insights', 'Insights da IA']];
+const SCREENS = [['overview', 'Visão geral'], ['ranking', 'Ranking da equipe'], ['vendas', 'Vendas e produtos'], ['clientes', 'Clientes'], ['financeiro', 'Financeiro', 'contém valores sensíveis'], ['insights', 'Insights da IA']];
 const secsLabel = (s) => { const m = Math.floor(s / 60), r = s % 60; return m === 0 ? `${s} s` : r ? `${m} min ${r} s` : `${m} min`; };
+
+const slug = (t) => t.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 30) || 'tv';
+
+/** TVs com nome e telas próprias. Cada TV abre pelo link /tv?tela=<id>. */
+function TvDevices({ devices, defaults, onChange }) {
+  const toast = useToast();
+  const upd = (i, patch) => onChange(devices.map((d, k) => (k === i ? { ...d, ...patch } : d)));
+  const add = () => {
+    const name = `TV ${devices.length + 1}`;
+    onChange([...devices, { id: `${slug(name)}-${Math.random().toString(36).slice(2, 6)}`, name, screens: { ...defaults } }]);
+  };
+  const link = (d) => `${window.location.origin}/tv?tela=${d.id}`;
+  return (
+    <fieldset style={{ margin: 0, padding: 0, border: 0, display: 'flex', flexDirection: 'column', gap: 12 }}>
+      <legend style={{ fontSize: 13, color: 'var(--text-2)', marginBottom: 8 }}>TVs cadastradas</legend>
+      <p className="dim" style={{ fontSize: 12, lineHeight: 1.5, marginTop: -4 }}>Dê um nome a cada TV e escolha o que ela mostra. Abra o link da TV no navegador dela uma vez — depois ela lembra sozinha. Na rede, troque “localhost” pelo endereço que aparece no terminal.</p>
+      {devices.map((d, i) => (
+        <div key={d.id} style={{ display: 'flex', flexDirection: 'column', gap: 10, padding: 14, borderRadius: 12, border: '1px solid var(--line)', background: 'var(--side)' }}>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+            <Icon name="tv" size={16} color="var(--violet-text)" />
+            <input className="input" aria-label="Nome da TV" value={d.name} maxLength={40} onChange={(e) => upd(i, { name: e.target.value })} style={{ flex: 1, minHeight: 36 }} />
+            <button type="button" className="btn icon sm ghost" aria-label={`Remover ${d.name}`} onClick={() => onChange(devices.filter((_, k) => k !== i))}><Icon name="trash" size={15} color="var(--muted)" /></button>
+          </div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px 14px' }}>
+            {SCREENS.map(([k, label]) => <label key={k} className="check" style={{ fontSize: 13 }}><input type="checkbox" checked={!!d.screens?.[k]} onChange={(e) => upd(i, { screens: { ...d.screens, [k]: e.target.checked } })} />{label}</label>)}
+          </div>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+            <code className="mono dim" style={{ flex: 1, fontSize: 12, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>/tv?tela={d.id}</code>
+            <button type="button" className="btn sm" onClick={() => { navigator.clipboard?.writeText(link(d)); toast('Link copiado', { text: link(d) }); }}><Icon name="copy" size={14} />Copiar link</button>
+            <a className="btn sm" href={`/tv?tela=${d.id}`} target="_blank" rel="noreferrer">Abrir</a>
+          </div>
+        </div>
+      ))}
+      <button type="button" className="btn sm" onClick={add} style={{ alignSelf: 'flex-start' }}><Icon name="plus" size={14} />Adicionar TV</button>
+    </fieldset>
+  );
+}
 
 export default function Settings() {
   const { refresh } = useAuth();
@@ -103,11 +140,12 @@ export default function Settings() {
             <span className="dim" style={{ fontSize: 12, lineHeight: 1.5 }}>Num computador onde o Dashboard já foi aberto, a TV usa o período escolhido lá. Este padrão vale para TVs em outros aparelhos.</span>
           </label>
           <fieldset style={{ margin: 0, padding: 0, border: 0 }}>
-            <legend style={{ fontSize: 13, color: 'var(--text-2)', marginBottom: 8 }}>Telas na rotação</legend>
+            <legend style={{ fontSize: 13, color: 'var(--text-2)', marginBottom: 8 }}>Telas na rotação{(form.tv.devices || []).length ? ' (TVs sem cadastro)' : ''}</legend>
             {SCREENS.map(([k, label, note]) => (
               <label key={k} className="check"><input type="checkbox" checked={!!form.tv.screens[k]} onChange={(e) => set('tv', 'screens')({ ...form.tv.screens, [k]: e.target.checked })} />{label}{note && <span className="dim" style={{ fontSize: 12 }}>— {note}</span>}</label>
             ))}
           </fieldset>
+          <TvDevices devices={form.tv.devices || []} defaults={form.tv.screens} onChange={set('tv', 'devices')} />
         </section>
 
         <section className="card" aria-labelledby="ap">

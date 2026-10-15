@@ -5,6 +5,8 @@ import os from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { cashflow } from './cashflow.js';
 import { customerDetail } from './customers.js';
+import { contextMiddleware } from './context.js';
+import { teamView } from './team.js';
 import { RULES, refreshAlerts, listAlerts, unreadCount, maybeRefreshAlerts } from './alerts.js';
 import { buildSummary, sendSummary } from './mailer.js';
 import { db, getSettings, saveSettings, logEvent, MODULES, ROLES } from './db.js';
@@ -20,6 +22,7 @@ import { isIso, refMonth, monthStart, monthEnd, todayStr, addMonths } from './da
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
+app.use(contextMiddleware);
 app.use('/api/import/preview', express.raw({ type: '*/*', limit: '60mb' }));
 app.use(express.json({ limit: '1mb' }));
 app.use(loadUser);
@@ -39,22 +42,23 @@ app.post('/api/auth/login', (req, res) => {
   const o = db.prepare('SELECT id FROM organizations WHERE slug = ?').get(String(slug || '').toLowerCase().trim());
   const u = o && db.prepare('SELECT * FROM users WHERE org_id = ? AND email = ?').get(o.id, String(email || '').toLowerCase().trim());
   if (!u || !verifyPassword(String(password || ''), u.password_hash)) {
-    if (o) logEvent(o.id, null, 'auth', `Tentativa de login falhou (${String(email || '').slice(0, 60)})`, 'erro');
+    if (o) logEvent(o.id, u?.id ?? null, 'auth', `Tentativa de login falhou (${String(email || '').slice(0, 60)})`, 'erro');
     return res.status(401).json({ error: 'Organização, e-mail ou senha incorretos. Verifique os dados e tente novamente.' });
   }
   if (u.status === 'desativado') return res.status(403).json({ error: 'Este usuário foi desativado. Fale com o administrador.' });
   if (u.status === 'pendente') db.prepare("UPDATE users SET status = 'ativo' WHERE id = ?").run(u.id);
   createSession(res, u, !!remember);
+  logEvent(o.id, u.id, 'auth', u.must_change_password ? 'Primeiro acesso (senha temporária)' : 'Entrou no sistema');
   res.json({ ok: true });
 });
 
-app.post('/api/auth/logout', (req, res) => { destroySession(req, res); res.json({ ok: true }); });
+app.post('/api/auth/logout', (req, res) => { if (req.user) logEvent(req.user.org_id, req.user.id, 'auth', 'Saiu do sistema'); destroySession(req, res); res.json({ ok: true }); });
 
 app.get('/api/auth/me', requireAuth, (req, res) => {
   const s = getSettings(org(req));
   const permissions = Object.fromEntries(MODULES.map((m) => [m, can(req.user, m)]));
   res.json({
-    user: { id: req.user.id, name: req.user.name, email: req.user.email, role: req.user.role },
+    user: { id: req.user.id, name: req.user.name, email: req.user.email, role: req.user.role, mustChangePassword: !!req.user.must_change_password },
     org: { slug: req.user.org_slug, name: req.user.org_name, segment: req.user.org_segment, isDemo: !!req.user.is_demo },
     permissions, tv: s.tv, appearance: s.appearance, showTools: s.ai.showTools, today: todayStr(), refMonth: refMonth()
   });
@@ -62,11 +66,14 @@ app.get('/api/auth/me', requireAuth, (req, res) => {
 
 app.post('/api/auth/password', requireAuth, (req, res) => {
   const { current, next } = req.body || {};
-  const u = db.prepare('SELECT password_hash FROM users WHERE id = ?').get(req.user.id);
-  if (!verifyPassword(String(current || ''), u.password_hash)) return res.status(400).json({ error: 'Senha atual incorreta.' });
+  const u = db.prepare('SELECT password_hash, must_change_password FROM users WHERE id = ?').get(req.user.id);
+  // No primeiro acesso a pessoa acabou de entrar com a senha temporária: não pedimos de novo.
+  if (!u.must_change_password && !verifyPassword(String(current || ''), u.password_hash)) return res.status(400).json({ error: 'Senha atual incorreta.' });
   const p = passwordProblem(next, getSettings(org(req)).security.strongPassword);
   if (p) return res.status(400).json({ error: p });
-  db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(hashPassword(next), req.user.id);
+  if (verifyPassword(String(next), u.password_hash)) return res.status(400).json({ error: 'A nova senha precisa ser diferente da atual.' });
+  db.prepare('UPDATE users SET password_hash = ?, must_change_password = 0 WHERE id = ?').run(hashPassword(next), req.user.id);
+  logEvent(org(req), req.user.id, 'auth', u.must_change_password ? 'Criou a própria senha no primeiro acesso' : 'Trocou a senha');
   res.json({ ok: true });
 });
 
@@ -138,7 +145,7 @@ app.get('/api/tv/data', requireAuth, (req, res) => {
     categories: M.categoryBreakdown(o, from, to), topCustomers: M.customersDeclining(o, from, to, 5),
     expenses: M.expensesByCategory(o, from, to), receivables: M.bills(o, 'receber', { days: 15 }).slice(0, 6), payables: M.bills(o, 'pagar', { days: 15 }).slice(0, 6),
     payables7: M.bills(o, 'pagar', { days: 7 }).reduce((s, b) => s + b.amount, 0),
-    forecast: M.forecast(o), targets: getSettings(o).targets,
+    forecast: M.forecast(o), targets: getSettings(o).targets, ranking: teamView(o),
     cashflow: (() => { const c = cashflow(o, 90); return c.hasBalance ? { balance: c.balance, minimum: c.minimum, endBalance: c.endBalance, minBalance: c.minBalance, firstBelow: c.firstBelow, weeks: c.weeks.map((w) => ({ label: w.label, balance: w.balance })) } : null; })()
   });
 });
@@ -180,16 +187,20 @@ app.put('/api/reports/schedules', requirePerm('relatorios'), (req, res) => {
 
 /* ---------- Histórico ---------- */
 app.get('/api/history', requirePerm('historico'), (req, res) => {
-  const kinds = { ai: ['ai'], report: ['report'], import: ['import'], config: ['config', 'auth', 'tv', 'admin'] };
+  const kinds = { ai: ['ai'], report: ['report'], import: ['import'], config: ['config', 'auth', 'tv', 'admin'], auditoria: ['auth', 'admin', 'config', 'tv', 'import'] };
   const k = kinds[req.query.kind];
   const q = `%${String(req.query.q || '').trim()}%`;
+  const user = +req.query.user || null;
+  const limit = Math.min(5000, Math.max(1, +req.query.limit || 200));
   const rows = db.prepare(`
-    SELECT e.id, e.kind, e.title, e.status, e.meta_json, e.created_at, u.name user_name
+    SELECT e.id, e.kind, e.title, e.status, e.meta_json, e.created_at, e.ip, e.user_id, u.name user_name, u.email user_email
     FROM events e LEFT JOIN users u ON u.id = e.user_id
-    WHERE e.org_id = ? ${k ? `AND e.kind IN (${k.map(() => '?').join(',')})` : ''} AND e.title LIKE ?
-    ORDER BY e.id DESC LIMIT 200`).all(org(req), ...(k || []), q);
+    WHERE e.org_id = ? ${k ? `AND e.kind IN (${k.map(() => '?').join(',')})` : ''} ${user ? 'AND e.user_id = ?' : ''} AND e.title LIKE ?
+    ORDER BY e.id DESC LIMIT ?`).all(org(req), ...(k || []), ...(user ? [user] : []), q, limit);
   const counts = Object.fromEntries(db.prepare('SELECT kind, COUNT(*) n FROM events WHERE org_id = ? GROUP BY kind').all(org(req)).map((r) => [r.kind, r.n]));
-  res.json({ events: rows.map((r) => ({ ...r, meta: r.meta_json ? JSON.parse(r.meta_json) : null, meta_json: undefined })), counts });
+  const failed = db.prepare("SELECT COUNT(*) n FROM events WHERE org_id = ? AND kind = 'auth' AND status = 'erro' AND created_at >= datetime('now', '-7 days')").get(org(req)).n;
+  const users = db.prepare('SELECT id, name FROM users WHERE org_id = ? ORDER BY name').all(org(req));
+  res.json({ events: rows.map((r) => ({ ...r, meta: r.meta_json ? JSON.parse(r.meta_json) : null, meta_json: undefined })), counts, users, failedLogins7d: failed });
 });
 
 /* ---------- Configurações ---------- */
@@ -211,7 +222,7 @@ app.put('/api/settings', requirePerm('configuracoes'), (req, res) => {
   }
   const patch = {};
   if (ai) patch.ai = { url: String(ai.url || '').trim() || 'http://localhost:11434', model: String(ai.model || '').trim() || 'qwen2.5:7b', autoInsights: !!ai.autoInsights, showTools: !!ai.showTools };
-  if (tv) patch.tv = { interval: Math.min(300, Math.max(30, +tv.interval || 30)), questionInterval: Math.min(30, Math.max(5, +tv.questionInterval || 10)), goalPeriod: ['7d', '30d', 'tri', '12m'].includes(tv.goalPeriod) ? tv.goalPeriod : '12m', screens: tv.screens, hideMoney: !!tv.hideMoney };
+  if (tv) patch.tv = { interval: Math.min(300, Math.max(30, +tv.interval || 30)), questionInterval: Math.min(30, Math.max(5, +tv.questionInterval || 10)), goalPeriod: ['7d', '30d', 'tri', '12m'].includes(tv.goalPeriod) ? tv.goalPeriod : '12m', screens: tv.screens, hideMoney: !!tv.hideMoney, devices: cleanDevices(tv.devices) };
   const imp = req.body?.import, bk = req.body?.backup;
   if (imp?.watch) patch.import = { watch: { enabled: !!imp.watch.enabled, path: String(imp.watch.path || '').trim(), intervalMin: [15, 30, 60, 180, 720, 1440].includes(+imp.watch.intervalMin) ? +imp.watch.intervalMin : 60 } };
   if (bk) patch.backup = { enabled: !!bk.enabled, hour: Math.min(23, Math.max(0, +bk.hour || 0)), dir: String(bk.dir || '').trim(), keep: Math.min(365, Math.max(1, +bk.keep || 30)) };
@@ -248,8 +259,8 @@ app.post('/api/users', requirePerm('administracao'), (req, res) => {
   if (!ROLES.includes(role)) return res.status(400).json({ error: 'Papel inválido.' });
   if (db.prepare('SELECT 1 FROM users WHERE org_id = ? AND email = ?').get(org(req), e)) return res.status(400).json({ error: 'Já existe um usuário com esse e-mail.' });
   const pw = tempPassword();
-  db.prepare('INSERT INTO users (org_id, name, email, password_hash, role, status) VALUES (?, ?, ?, ?, ?, ?)').run(org(req), String(name).trim(), e, hashPassword(pw), role, 'pendente');
-  logEvent(org(req), req.user.id, 'admin', `Usuário convidado: ${String(name).trim()}`);
+  db.prepare('INSERT INTO users (org_id, name, email, password_hash, role, status, must_change_password) VALUES (?, ?, ?, ?, ?, ?, 1)').run(org(req), String(name).trim(), e, hashPassword(pw), role, 'pendente');
+  logEvent(org(req), req.user.id, 'admin', `Usuário convidado: ${String(name).trim()}`, 'ok', { email: e, papel: role });
   res.json({ ok: true, tempPassword: pw });
 });
 
@@ -262,7 +273,11 @@ app.patch('/api/users/:id', requirePerm('administracao'), (req, res) => {
   if (status && !['ativo', 'pendente', 'desativado'].includes(status)) return res.status(400).json({ error: 'Status inválido.' });
   db.prepare('UPDATE users SET role = COALESCE(?, role), status = COALESCE(?, status), name = COALESCE(?, name) WHERE id = ?').run(role || null, status || null, name || null, u.id);
   if (status === 'desativado') db.prepare('DELETE FROM sessions WHERE user_id = ?').run(u.id);
-  logEvent(org(req), req.user.id, 'admin', `Usuário atualizado: ${u.name}`);
+  const changes = {};
+  if (role && role !== u.role) changes.papel = [u.role, role];
+  if (status && status !== u.status) changes.status = [u.status, status];
+  if (name && name !== u.name) changes.nome = [u.name, name];
+  logEvent(org(req), req.user.id, 'admin', `Usuário atualizado: ${u.name}`, 'ok', Object.keys(changes).length ? { alteracoes: changes } : null);
   res.json({ ok: true });
 });
 
@@ -270,7 +285,7 @@ app.post('/api/users/:id/reset-password', requirePerm('administracao'), (req, re
   const u = db.prepare('SELECT * FROM users WHERE org_id = ? AND id = ?').get(org(req), +req.params.id);
   if (!u) return res.status(404).json({ error: 'Usuário não encontrado.' });
   const pw = tempPassword();
-  db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(hashPassword(pw), u.id);
+  db.prepare('UPDATE users SET password_hash = ?, must_change_password = 1 WHERE id = ?').run(hashPassword(pw), u.id);
   db.prepare('DELETE FROM sessions WHERE user_id = ?').run(u.id);
   logEvent(org(req), req.user.id, 'admin', `Senha redefinida: ${u.name}`);
   res.json({ ok: true, tempPassword: pw });
@@ -280,8 +295,11 @@ app.put('/api/permissions', requirePerm('administracao'), (req, res) => {
   const m = req.body?.permissions || {};
   const clean = Object.fromEntries(MODULES.map((mod) => [mod, Object.fromEntries(ROLES.map((r) => [r, r === 'admin' ? true : !!m[mod]?.[r]]))]));
   const sec = req.body?.security;
+  const before = getSettings(org(req)).permissions;
+  const diff = [];
+  for (const mod of MODULES) for (const r of ROLES) if (!!before[mod]?.[r] !== clean[mod][r]) diff.push(`${mod}/${r}: ${clean[mod][r] ? 'liberado' : 'bloqueado'}`);
   const s = saveSettings(org(req), { permissions: clean, ...(sec ? { security: { strongPassword: !!sec.strongPassword, sessionHours: [8, 12, 24, 72].includes(+sec.sessionHours) ? +sec.sessionHours : 12 }, tv: { hideMoney: !!sec.hideMoney } } : {}) });
-  logEvent(org(req), req.user.id, 'admin', 'Permissões atualizadas');
+  logEvent(org(req), req.user.id, 'admin', 'Permissões atualizadas', 'ok', diff.length ? { alteracoes: diff } : null);
   res.json({ permissions: s.permissions, security: s.security });
 });
 
@@ -393,6 +411,47 @@ app.post('/api/goals/copy-last-year', requirePerm('metas'), (req, res) => {
     if (base > 0) out.push({ month: g.month, target: Math.round((base * (1 + pct / 100)) / 1000) * 1000 });
   }
   res.json({ suggestions: out });
+});
+
+/* ---------- Equipe ---------- */
+app.get('/api/team', requirePerm('equipe'), (req, res) => {
+  const m = /^\d{4}-\d{2}$/.test(req.query.month || '') ? `${req.query.month}-01` : undefined;
+  res.json(teamView(org(req), m));
+});
+
+/* ---------- Aviso fixo nas TVs ---------- */
+const SCREEN_KEYS = ['overview', 'ranking', 'vendas', 'clientes', 'financeiro', 'insights'];
+function cleanDevices(list) {
+  if (!Array.isArray(list)) return [];
+  return list.slice(0, 20).map((d) => ({
+    id: /^[a-z0-9-]{2,40}$/.test(d.id || '') ? d.id : String(d.name || 'tv').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 40) || `tv-${Math.random().toString(36).slice(2, 7)}`,
+    name: String(d.name || 'TV').trim().slice(0, 40),
+    screens: Object.fromEntries(SCREEN_KEYS.map((k) => [k, !!d.screens?.[k]]))
+  })).filter((d, i, a) => a.findIndex((x) => x.id === d.id) === i);
+}
+app.put('/api/tv/notice', requirePerm('avisos'), (req, res) => {
+  const text = String(req.body?.text || '').trim().slice(0, 160);
+  if (!text) return res.status(400).json({ error: 'Escreva o aviso.' });
+  const minutes = +req.body?.minutes || 0;
+  let until = null;
+  if (minutes > 0) until = new Date(Date.now() + Math.min(minutes, 7 * 24 * 60) * 60e3).toISOString();
+  if (req.body?.endOfDay) { const d = new Date(); d.setHours(23, 59, 0, 0); until = d.toISOString(); }
+  const devices = Array.isArray(req.body?.devices) ? req.body.devices.map(String).slice(0, 20) : [];
+  const notice = { text, until, by: req.user.name, at: new Date().toISOString(), devices };
+  saveSettings(org(req), { tv: { notice } });
+  broadcast(org(req), 'notice', notice);
+  logEvent(org(req), req.user.id, 'tv', `Aviso na TV: ${text}`, 'tv', { ate: until, telas: devices.length ? devices : 'todas' });
+  res.json(notice);
+});
+app.delete('/api/tv/notice', requirePerm('avisos'), (req, res) => {
+  saveSettings(org(req), { tv: { notice: null } });
+  broadcast(org(req), 'notice', null);
+  logEvent(org(req), req.user.id, 'tv', 'Aviso da TV removido', 'tv');
+  res.json({ ok: true });
+});
+app.get('/api/tv/notice', requireAuth, (req, res) => {
+  const s = getSettings(org(req)).tv;
+  res.json({ notice: s.notice, devices: s.devices.map(({ id, name }) => ({ id, name })), screens: tvCount(org(req)) });
 });
 
 /* ---------- Alertas e resumo diário ---------- */

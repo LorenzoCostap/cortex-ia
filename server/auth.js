@@ -47,7 +47,7 @@ export function loadUser(req, _res, next) {
   const token = parseCookies(req.headers.cookie)[COOKIE];
   if (token) {
     const row = db.prepare(`
-      SELECT u.id, u.org_id, u.name, u.email, u.role, u.status, s.expires_at,
+      SELECT u.id, u.org_id, u.name, u.email, u.role, u.status, u.must_change_password, s.expires_at,
              o.slug AS org_slug, o.name AS org_name, o.segment AS org_segment, o.is_demo
       FROM sessions s JOIN users u ON u.id = s.user_id JOIN organizations o ON o.id = u.org_id
       WHERE s.token = ?`).get(token);
@@ -69,6 +69,7 @@ export function can(user, module) {
 export function requirePerm(module) {
   return (req, res, next) => {
     if (!req.user) return res.status(401).json({ error: 'Sessão expirada. Entre novamente.' });
+    if (req.user.must_change_password) return res.status(403).json({ error: 'Crie a sua senha antes de continuar.', code: 'must_change_password' });
     if (!can(req.user, module)) return res.status(403).json({ error: 'Seu papel não tem acesso a esta área.' });
     next();
   };

@@ -217,6 +217,7 @@ export function seedDemo({ reset = false } = {}) {
   [['Rafael Lima', 'rafael', 'gestor', 'ativo', 1], ['Camila Rocha', 'camila', 'gestor', 'ativo', 1], ['Diego Martins', 'diego', 'analista', 'ativo', 1], ['Bruno Alves', 'bruno', 'visualizador', 'pendente', 0], ['Luana Souza', 'luana', 'analista', 'desativado', 1]]
     .forEach(([n, e, r, s, l]) => insU.run(orgId, n, `${e}@grupovalmar.com.br`, pw, r, s, l ? new Date(Date.now() - Math.random() * 9 * 864e5).toISOString().slice(0, 19).replace('T', ' ') : null));
 
+  db.prepare("UPDATE users SET must_change_password = 1 WHERE org_id = ? AND status = 'pendente'").run(orgId); // Bruno entra com senha temporária
   generateDemoData(orgId);
   logEvent(orgId, null, 'import', 'Dados de demonstração gerados', 'ok');
   return orgId;

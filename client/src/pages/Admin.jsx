@@ -4,7 +4,7 @@ import { PageHead } from '../components/Layout.jsx';
 import { Icon, Modal, Spinner, ErrorBox, useAsync, useToast } from '../components/ui.jsx';
 import { initials, relTime, ROLE_LABEL } from '../format.js';
 
-const MOD_LABEL = { dashboard: 'Dashboard', assistente: 'Assistente Cortex AI', vendas: 'Vendas e indicadores', metas: 'Metas', fluxo: 'Fluxo de caixa', alertas: 'Alertas e resumo diário', importacao: 'Importação de dados', relatorios: 'Relatórios', historico: 'Histórico', configuracoes: 'Configurações', administracao: 'Administração' };
+const MOD_LABEL = { dashboard: 'Dashboard', assistente: 'Assistente Cortex AI', vendas: 'Vendas e indicadores', equipe: 'Equipe comercial', metas: 'Metas', fluxo: 'Fluxo de caixa', alertas: 'Alertas e resumo diário', avisos: 'Avisos nas TVs', importacao: 'Importação de dados', relatorios: 'Relatórios', historico: 'Histórico', configuracoes: 'Configurações', administracao: 'Administração' };
 const STATUS = { ativo: ['Ativo', 'var(--green-text)'], pendente: ['Convite pendente', 'var(--amber-text)'], desativado: ['Desativado', 'var(--muted)'] };
 
 function PasswordModal({ title, name, password, onClose }) {

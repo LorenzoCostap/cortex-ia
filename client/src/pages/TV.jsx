@@ -5,10 +5,10 @@ import { useAuth } from '../auth.jsx';
 import { Icon, BrandMark, Spinner } from '../components/ui.jsx';
 import { loadSavedPeriod, periodLabel } from '../components/PeriodPicker.jsx';
 import TVFinance from '../components/TVFinance.jsx';
-import { brlK, num, delta, toneOf } from '../format.js';
+import { brl, brlK, num, delta, toneOf } from '../format.js';
 
 const W = 1920, H = 1080;
-const SCREEN_LABEL = { overview: 'Visão geral', vendas: 'Vendas e produtos', clientes: 'Clientes', financeiro: 'Financeiro', insights: 'Insights do Cortex' };
+const SCREEN_LABEL = { overview: 'Visão geral', ranking: 'Ranking da equipe', vendas: 'Vendas e produtos', clientes: 'Clientes', financeiro: 'Financeiro', insights: 'Insights do Cortex' };
 const TONE = { pos: '#34D399', neg: '#F87171', neutral: '#ECECF1' };
 
 function useStageScale() {
@@ -96,6 +96,74 @@ function BarList({ items, hide }) {
   );
 }
 
+const MEDAL = [['#FBBF24', '#1A1405'], ['#C9C9D1', '#16161A'], ['#C08457', '#1A0F07']];
+
+function RankingScreen({ r, hide }) {
+  const exp = r.expectedPct;
+  const team = r.team;
+  const teamPct = team.pct || 0;
+  const C = 2 * Math.PI * 50;
+  return (
+    <div style={{ flex: 1, minHeight: 0, display: 'grid', gridTemplateColumns: 'minmax(0, 1.55fr) minmax(0, 1fr)', gap: 24 }}>
+      <section style={{ ...panel, gap: 26 }}>
+        <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 20 }}>
+          <h2 style={{ fontSize: 30, fontWeight: 600 }}>Vendas por vendedor</h2>
+          <span style={{ fontSize: 18, color: '#8E8E99' }}>% da meta individual{exp !== null && exp < 100 ? ` · traço = onde deveria estar hoje (${num(exp, 0)}%)` : ''}</span>
+        </div>
+        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'space-around', gap: 14 }}>
+          {r.sellers.slice(0, 7).map((s, i) => {
+            const pct = s.pct ?? 0;
+            const ok = s.pct !== null && (exp === null || pct >= exp * 0.97);
+            const [bg, fg] = MEDAL[i] || ['#24242B', '#A6A6B0'];
+            return (
+              <div key={s.name} style={{ display: 'grid', gridTemplateColumns: '56px minmax(0, 1fr) 110px', gap: 22, alignItems: 'center' }}>
+                <span style={{ width: 56, height: 56, borderRadius: '50%', background: bg, color: fg, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 24, fontWeight: 700 }}>{i + 1}</span>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 12, minWidth: 0 }}>
+                  <span style={{ display: 'flex', justifyContent: 'space-between', gap: 16, fontSize: 26 }}><span style={{ fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{s.name}</span><span style={{ fontFamily: 'var(--mono)', color: '#A6A6B0', fontSize: 22 }}>{hide ? '•••' : brlK(s.revenue)}</span></span>
+                  <span style={{ position: 'relative', height: 18, borderRadius: 9, background: '#24242B' }}>
+                    <span style={{ position: 'absolute', inset: '0 auto 0 0', width: `${Math.min(pct, 100)}%`, borderRadius: 9, background: ok ? '#A78BFA' : '#4E3F8C', transformOrigin: 'left', animation: `growx 1s cubic-bezier(.2,.8,.2,1) ${i * 0.12}s both` }} />
+                    {exp !== null && exp < 100 && <span style={{ position: 'absolute', left: `${exp}%`, top: -6, bottom: -6, width: 3, borderRadius: 2, background: '#ECECF1' }} />}
+                  </span>
+                </div>
+                <span style={{ fontFamily: 'var(--mono)', fontSize: 34, textAlign: 'right', color: s.pct === null ? '#6B6B78' : ok ? '#6EE7B7' : '#FCA5A5' }}>{s.pct === null ? '—' : `${num(pct, 0)}%`}</span>
+              </div>
+            );
+          })}
+          {!r.sellers.length && <p style={{ fontSize: 24, color: '#8E8E99' }}>Sem vendas com vendedor neste mês.</p>}
+        </div>
+      </section>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 24, minHeight: 0 }}>
+        <section style={{ ...panel, flexDirection: 'row', alignItems: 'center', gap: 36 }}>
+          <svg width="210" height="210" viewBox="0 0 120 120" role="img" aria-label={`Equipe em ${num(teamPct, 0)}% da meta`} style={{ flex: 'none' }}>
+            <circle cx="60" cy="60" r="50" fill="none" stroke="#24242B" strokeWidth="12" />
+            <circle cx="60" cy="60" r="50" fill="none" stroke="#A78BFA" strokeWidth="12" strokeLinecap="round" strokeDasharray={`${(Math.min(teamPct, 100) / 100) * C} ${C}`} transform="rotate(-90 60 60)" />
+            {exp !== null && exp < 100 && <line x1="60" y1="4" x2="60" y2="17" stroke="#ECECF1" strokeWidth="2.5" transform={`rotate(${exp * 3.6} 60 60)`} />}
+            <text x="60" y="67" textAnchor="middle" fontFamily="Geist Mono Variable, monospace" fontSize="22" fill="#ECECF1">{team.target ? `${num(teamPct, 0)}%` : '—'}</text>
+          </svg>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 12, minWidth: 0 }}>
+            <h2 style={{ fontSize: 28, fontWeight: 600 }}>Meta da equipe</h2>
+            <span style={{ fontFamily: 'var(--mono)', fontSize: 40 }}>{hide ? '•••' : brlK(team.realized)}<span style={{ fontSize: 22, color: '#8E8E99' }}>{team.target && !hide ? ` de ${brlK(team.target).replace('R$ ', '')}` : ''}</span></span>
+            {!r.closed && team.requiredPerDay !== null && <span style={{ fontSize: 20, color: '#A6A6B0' }}>Faltam {num(team.businessDaysLeft, 0)} dias úteis{hide ? '' : ` · ${brlK(team.requiredPerDay)} por dia`}</span>}
+            {!r.closed && team.projectionPct !== null && <span style={{ fontSize: 20, color: team.projectionPct >= 100 ? '#6EE7B7' : '#FCD34D' }}>Previsão: {num(team.projectionPct, 0)}% da meta</span>}
+          </div>
+        </section>
+        <section style={{ ...panel, flex: 1, gap: 20 }}>
+          <h2 style={{ fontSize: 28, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 12 }}><Icon name="sparkle" size={26} color="#B9A3FF" />Destaques da semana</h2>
+          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'space-around' }}>
+            {r.highlights.map((h) => (
+              <div key={h.label} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 16, fontSize: 24, padding: '14px 0', borderBottom: '1px solid #24242B' }}>
+                <span style={{ color: '#A6A6B0' }}>{h.label}</span>
+                <span style={{ fontWeight: 600, textAlign: 'right' }}>{h.who} · <span style={{ fontFamily: 'var(--mono)', fontWeight: 500 }}>{h.kind === 'money' ? (hide ? '•••' : brl(h.value)) : `${num(h.value)} ${h.unit}`}</span></span>
+              </div>
+            ))}
+            {!r.highlights.length && <p style={{ fontSize: 22, color: '#8E8E99' }}>Sem vendas nos últimos 7 dias.</p>}
+          </div>
+        </section>
+      </div>
+    </div>
+  );
+}
+
 export default function TV() {
   const { me } = useAuth();
   const scale = useStageScale();
@@ -105,6 +173,12 @@ export default function TV() {
   const [screen, setScreen] = useState(0);
   const [push, setPush] = useState(null);
   const pushTimer = useRef(null);
+  const [notice, setNotice] = useState(undefined); // undefined = usar o que veio em /tv/data
+  // Qual TV é esta: ?tela=<id> no link (fica lembrado neste navegador)
+  const [deviceId] = useState(() => {
+    const p = new URLSearchParams(window.location.search).get('tela');
+    try { if (p) localStorage.setItem('cortex.tv.device', p); return p || localStorage.getItem('cortex.tv.device') || ''; } catch { return p || ''; }
+  });
 
   const load = () => api('/tv/data').then((d) => { setData(d); setError(null); }).catch((e) => { setError(e); setTimeout(load, 15000); });
   useEffect(() => { load(); const t = setInterval(load, 5 * 60e3); return () => clearInterval(t); }, []);
@@ -116,6 +190,7 @@ export default function TV() {
       clearTimeout(pushTimer.current);
       pushTimer.current = setTimeout(() => setPush(null), 90e3);
     });
+    es.addEventListener('notice', (e) => setNotice(JSON.parse(e.data)));
     es.addEventListener('insights', load);
     es.addEventListener('settings', load);
     es.addEventListener('report', load);
@@ -141,7 +216,14 @@ export default function TV() {
     window.addEventListener('storage', onStorage);
     return () => { clearInterval(t); window.removeEventListener('storage', onStorage); };
   }, [tv, goalPeriodSetting, me.today]);
-  const screens = useMemo(() => (tv ? Object.keys(SCREEN_LABEL).filter((k) => tv.screens[k]) : ['overview']), [tv]);
+  const device = tv?.devices?.find((x) => x.id === deviceId) || null;
+  const screens = useMemo(() => (tv ? Object.keys(SCREEN_LABEL).filter((k) => (device ? device.screens : tv.screens)[k]) : ['overview']), [tv, device]);
+  const activeNotice = (() => {
+    const n = notice === undefined ? tv?.notice : notice;
+    if (!n || (n.until && new Date(n.until) <= now)) return null;
+    if (n.devices?.length && !n.devices.includes(deviceId)) return null;
+    return n;
+  })();
   const safeScreens = screens.length ? screens : ['overview'];
   const current = safeScreens[screen % safeScreens.length];
   const interval = tv?.interval || 30;
@@ -172,6 +254,8 @@ export default function TV() {
     if (current === 'overview') {
       const periodText = goal ? `${periodLabel(goal.period).toLowerCase()} · por ${goal.unit.replace('mes', 'mês')}` : 'últimos 12 meses · por mês';
       content = <TVFinance data={data} goal={goal} periodText={periodText} hide={hide} widget={<CortexWidget insights={insights} seconds={tv.questionInterval || 10} push={push} compact />} />;
+    } else if (current === 'ranking' && data.ranking) {
+      content = <RankingScreen r={data.ranking} hide={hide} />;
     } else if (current === 'vendas') {
       content = <>{kpis}{two(
         <section style={{ ...panel, display: 'grid', gridTemplateColumns: '1.2fr 1fr', gap: 48 }}>
@@ -230,14 +314,23 @@ export default function TV() {
   return (
     <div style={{ position: 'fixed', inset: 0, background: '#0E0E10', overflow: 'hidden', cursor: 'none' }} onMouseMove={(e) => { e.currentTarget.style.cursor = 'default'; }}>
       <div style={{ width: W, height: H, transform: `scale(${scale})`, transformOrigin: 'top left', position: 'absolute', left: (window.innerWidth - W * scale) / 2, top: (window.innerHeight - H * scale) / 2, padding: '36px 48px 40px', boxSizing: 'border-box', color: '#ECECF1', display: 'flex', flexDirection: 'column', gap: 20 }}>
-        <header style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <header style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', height: 78, flex: 'none' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 20 }}>
             <BrandMark size={48} />
             <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
               <span style={{ fontSize: 28, fontWeight: 600 }}>{me.org.name}</span>
-              <span style={{ fontSize: 20, color: '#A6A6B0' }}>{SCREEN_LABEL[current]}{d && current !== 'insights' ? ` · ${d.label}` : ''}</span>
+              <span style={{ fontSize: 20, color: '#A6A6B0' }}>{SCREEN_LABEL[current]}{current === 'ranking' && data?.ranking ? ` · ${data.ranking.label.split(' ')[0].toLowerCase()}, até hoje` : d && current !== 'insights' ? ` · ${d.label}` : ''}{device ? ` · ${device.name}` : ''}</span>
             </div>
           </div>
+          {activeNotice && (
+            <div role="note" style={{ flex: '1 1 0', minWidth: 0, margin: '0 36px', display: 'flex', alignItems: 'center', gap: 16, padding: '8px 18px', maxHeight: 78, boxSizing: 'border-box', borderRadius: 14, background: '#2A2210', border: '1px solid #5A4718', color: '#FDE68A', animation: 'rise .5s ease both' }}>
+              <Icon name="megaphone" size={26} color="#FBBF24" style={{ flex: 'none' }} />
+              <span style={{ display: 'flex', flexDirection: 'column', gap: 2, minWidth: 0 }}>
+                <span style={{ fontSize: 19, fontWeight: 500, lineHeight: 1.2, overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' }}>{activeNotice.text}</span>
+                <span style={{ fontSize: 13, color: '#C9B57A' }}>Aviso de {activeNotice.by.split(' ')[0]}{activeNotice.until ? ` · até ${new Date(activeNotice.until).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}` : ''}</span>
+              </span>
+            </div>
+          )}
           <div style={{ display: 'flex', alignItems: 'center', gap: 40 }}>
             <div aria-label={`Tela ${(screen % safeScreens.length) + 1} de ${safeScreens.length}`} style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
               {safeScreens.map((s, i) => i === screen % safeScreens.length

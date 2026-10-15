@@ -16,6 +16,8 @@ import Goals from './pages/Goals.jsx';
 import CashFlow from './pages/CashFlow.jsx';
 import Customer from './pages/Customer.jsx';
 import Alerts from './pages/Alerts.jsx';
+import Team from './pages/Team.jsx';
+import FirstAccess from './pages/FirstAccess.jsx';
 import Reports from './pages/Reports.jsx';
 import History from './pages/History.jsx';
 import Settings from './pages/Settings.jsx';
@@ -35,6 +37,7 @@ function AppRoutes() {
   const loc = useLocation();
   if (me === undefined) return <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Spinner size={28} /></div>;
   if (!me) return loc.pathname === '/login' ? <Login /> : <Navigate to={`/login?next=${encodeURIComponent(loc.pathname)}`} replace />;
+  if (me.user.mustChangePassword) return <FirstAccess />;
   return (
     <Routes>
       <Route path="/login" element={<Navigate to="/" replace />} />
@@ -43,6 +46,7 @@ function AppRoutes() {
       <Route path="/assistente" element={<Guard perm="assistente"><Assistant /></Guard>} />
       <Route path="/vendas" element={<Guard perm="vendas"><Sales /></Guard>} />
       <Route path="/clientes/:id" element={<Guard perm="vendas"><Customer /></Guard>} />
+      <Route path="/equipe" element={<Guard perm="equipe"><Team /></Guard>} />
       <Route path="/metas" element={<Guard perm="metas"><Goals /></Guard>} />
       <Route path="/fluxo-de-caixa" element={<Guard perm="fluxo"><CashFlow /></Guard>} />
       <Route path="/alertas" element={<Guard perm="alertas"><Alerts /></Guard>} />

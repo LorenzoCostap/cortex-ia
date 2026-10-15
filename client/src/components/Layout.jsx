@@ -3,12 +3,14 @@ import { api } from '../api.js';
 import { NavLink, Link } from 'react-router-dom';
 import { useAuth } from '../auth.jsx';
 import { Icon, BrandMark } from './ui.jsx';
+import NoticeButton from './NoticeButton.jsx';
 import { initials, ROLE_LABEL } from '../format.js';
 
 export const NAV = [
   { to: '/', key: 'dashboard', label: 'Dashboard', icon: 'dashboard' },
   { to: '/assistente', key: 'assistente', label: 'Assistente Cortex AI', icon: 'sparkle' },
   { to: '/vendas', key: 'vendas', label: 'Vendas e indicadores', icon: 'trend' },
+  { to: '/equipe', key: 'equipe', label: 'Equipe comercial', icon: 'users' },
   { to: '/metas', key: 'metas', label: 'Metas', icon: 'target' },
   { to: '/fluxo-de-caixa', key: 'fluxo', label: 'Fluxo de caixa', icon: 'wallet' },
   { to: '/alertas', key: 'alertas', label: 'Alertas', icon: 'bell' },
@@ -52,6 +54,7 @@ export default function Layout({ children }) {
         </nav>
         <div className="side-foot">
           <a className="btn" href="/tv" target="_blank" rel="noreferrer"><Icon name="tv" size={16} color="var(--violet-text)" />Abrir modo TV</a>
+          {me.permissions.avisos && <NoticeButton />}
           <div className="user-row">
             <span className="avatar">{initials(me.user.name)}</span>
             <span style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 2 }}>

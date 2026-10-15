@@ -29,6 +29,8 @@ Na primeira execução o Cortex cria o banco (`data/cortex.db`) com 2 anos de da
 - Neste computador: `npm run tv` (abre o Chrome/Edge em tela cheia) ou acesse `http://localhost:3210/tv`.
 - Em outra TV/PC da mesma rede: use o endereço “Na rede (TVs)” que aparece no terminal + `/tv`.
 
+Em **Configurações › Modo TV › TVs cadastradas** dá para dar nome a cada TV e escolher as telas de cada uma; abra o link `/tv?tela=<id>` uma vez no navegador da TV e ela passa a lembrar. O botão **Aviso nas TVs** (menu lateral) publica um recado fixo no topo de todas as TVs ou só de algumas, com prazo.
+
 As telas giram sozinhas (30 s a 5 min, configurável) e o widget do Cortex AI passa pelas perguntas frequentes. No Assistente, o botão **Enviar para a TV** mostra a resposta em destaque nas telas conectadas.
 
 ### IA local (Ollama)
@@ -54,6 +56,7 @@ O modelo e o endereço podem ser trocados em **Configurações**. Sem o Ollama, 
 - **Clientes:** em Vendas, clique num cliente (ou em “Clientes comprando menos” no Dashboard) para ver compras mês a mês contra o ano anterior, frequência, produtos que caíram, últimos pedidos e a leitura do Cortex.
 - **Alertas:** o Cortex vigia clientes fora do ritmo, meta em risco, saldo abaixo do mínimo, contas vencidas e produtos em queda (a cada 15 minutos). O contador aparece no menu; as regras se ligam e desligam na própria tela.
 - **Resumo diário por e-mail:** em Alertas, informe uma conta Gmail e uma [senha de app](https://myaccount.google.com/apppasswords) (exige verificação em duas etapas), os destinatários e o horário. O computador precisa estar ligado com o Cortex rodando no horário do envio.
+- **Equipe comercial:** ranking dos vendedores contra a meta individual (com o traço de onde deveriam estar hoje), regiões e destaques da semana. Também vira uma tela da TV.
 - **Fluxo de caixa:** informe o saldo de hoje e o mínimo de segurança; o Cortex projeta 30, 60 ou 90 dias com as contas a pagar e a receber e a média de vendas das últimas 12 semanas, avisa quando o saldo vai ficar abaixo do mínimo e permite dar baixa nas contas. Com o saldo informado, a TV mostra o saldo projetado.
 
 ## Comandos
@@ -66,6 +69,11 @@ O modelo e o endereço podem ser trocados em **Configurações**. Sem o Ollama, 
 | `npm run seed` | Recria os dados de demonstração |
 | `npm run org:create -- --slug minha-empresa --name "Minha Empresa" --admin "Nome" --email voce@empresa.com --password senha1234` | Cria outra organização com login próprio |
 | `npm test` | Testes (inclui a IA com um Ollama simulado) |
+
+## Segurança e auditoria
+
+- Usuários convidados (ou com senha redefinida pelo administrador) entram com uma senha temporária e são obrigados a criar a própria senha no primeiro acesso.
+- **Histórico › Auditoria** mostra acessos, tentativas de login com senha errada, mudanças de usuários e permissões (com o antes e depois), configurações, importações e avisos na TV, com o IP de cada ação. Exporta em CSV.
 
 ## Estrutura
 

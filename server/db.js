@@ -1,4 +1,5 @@
 import Database from 'better-sqlite3';
+import { requestContext } from './context.js';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -156,6 +157,8 @@ addColumn('customers', 'seller', 'TEXT');
 addColumn('customers', 'region', 'TEXT');
 addColumn('orders', 'seller', 'TEXT');
 addColumn('orders', 'external_id', 'TEXT');
+addColumn('users', 'must_change_password', 'INTEGER NOT NULL DEFAULT 0');
+addColumn('events', 'ip', 'TEXT');
 db.exec(`
 CREATE TABLE IF NOT EXISTS goal_items (
   org_id INTEGER NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
@@ -179,12 +182,12 @@ CREATE TABLE IF NOT EXISTS imported_files (
 CREATE INDEX IF NOT EXISTS idx_orders_seller ON orders(org_id, seller);
 `);
 
-export const MODULES = ['dashboard', 'assistente', 'vendas', 'metas', 'fluxo', 'alertas', 'importacao', 'relatorios', 'historico', 'configuracoes', 'administracao'];
+export const MODULES = ['dashboard', 'assistente', 'vendas', 'equipe', 'metas', 'fluxo', 'alertas', 'avisos', 'importacao', 'relatorios', 'historico', 'configuracoes', 'administracao'];
 export const ROLES = ['admin', 'gestor', 'analista', 'visualizador'];
 
 export const DEFAULT_SETTINGS = {
   ai: { url: 'http://localhost:11434', model: 'qwen2.5:7b', autoInsights: true, showTools: true },
-  tv: { interval: 30, questionInterval: 10, goalPeriod: '12m', screens: { overview: true, vendas: true, clientes: true, financeiro: false, insights: true }, hideMoney: false },
+  tv: { interval: 30, questionInterval: 10, goalPeriod: '12m', screens: { overview: true, ranking: true, vendas: true, clientes: true, financeiro: false, insights: true }, hideMoney: false, devices: [], notice: null },
   appearance: { theme: 'dark', animations: true },
   targets: { netMargin: 18 },
   cash: { balance: null, date: null, minimum: 0 },
@@ -199,9 +202,11 @@ export const DEFAULT_SETTINGS = {
     dashboard: { admin: true, gestor: true, analista: true, visualizador: true },
     assistente: { admin: true, gestor: true, analista: true, visualizador: false },
     vendas: { admin: true, gestor: true, analista: true, visualizador: true },
+    equipe: { admin: true, gestor: true, analista: true, visualizador: false },
     metas: { admin: true, gestor: true, analista: true, visualizador: false },
     fluxo: { admin: true, gestor: true, analista: false, visualizador: false },
     alertas: { admin: true, gestor: true, analista: true, visualizador: false },
+    avisos: { admin: true, gestor: true, analista: false, visualizador: false },
     importacao: { admin: true, gestor: true, analista: false, visualizador: false },
     relatorios: { admin: true, gestor: true, analista: true, visualizador: false },
     historico: { admin: true, gestor: true, analista: false, visualizador: false },
@@ -214,7 +219,7 @@ function deepMerge(base, extra) {
   if (Array.isArray(base) || typeof base !== 'object' || base === null) return extra === undefined ? base : extra;
   const out = { ...base };
   for (const k of Object.keys(extra || {})) {
-    out[k] = typeof base[k] === 'object' && base[k] !== null && !Array.isArray(base[k]) ? deepMerge(base[k], extra[k]) : extra[k];
+    out[k] = extra[k] !== null && typeof base[k] === 'object' && base[k] !== null && !Array.isArray(base[k]) ? deepMerge(base[k], extra[k]) : extra[k];
   }
   return out;
 }
@@ -233,6 +238,7 @@ export function saveSettings(orgId, patch) {
 }
 
 export function logEvent(orgId, userId, kind, title, status = 'ok', meta = null) {
-  db.prepare('INSERT INTO events (org_id, user_id, kind, title, status, meta_json) VALUES (?, ?, ?, ?, ?, ?)')
-    .run(orgId, userId ?? null, kind, title, status, meta ? JSON.stringify(meta) : null);
+  const ctx = requestContext();
+  db.prepare('INSERT INTO events (org_id, user_id, kind, title, status, meta_json, ip) VALUES (?, ?, ?, ?, ?, ?, ?)')
+    .run(orgId, userId ?? null, kind, title, status, meta ? JSON.stringify(meta) : null, ctx?.ip || null);
 }
