@@ -128,6 +128,23 @@ CREATE TABLE IF NOT EXISTS insights (
   source TEXT NOT NULL DEFAULT 'auto',
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
+CREATE TABLE IF NOT EXISTS alerts (
+  id INTEGER PRIMARY KEY,
+  org_id INTEGER NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+  key TEXT NOT NULL,
+  rule TEXT NOT NULL,
+  category TEXT NOT NULL,
+  severity TEXT NOT NULL,
+  title TEXT NOT NULL,
+  text TEXT NOT NULL,
+  link TEXT,
+  cta TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+  read_at TEXT,
+  resolved_at TEXT,
+  UNIQUE (org_id, key)
+);
 `);
 
 // Migrações simples: colunas e tabelas adicionadas depois da primeira versão
@@ -162,7 +179,7 @@ CREATE TABLE IF NOT EXISTS imported_files (
 CREATE INDEX IF NOT EXISTS idx_orders_seller ON orders(org_id, seller);
 `);
 
-export const MODULES = ['dashboard', 'assistente', 'vendas', 'metas', 'fluxo', 'importacao', 'relatorios', 'historico', 'configuracoes', 'administracao'];
+export const MODULES = ['dashboard', 'assistente', 'vendas', 'metas', 'fluxo', 'alertas', 'importacao', 'relatorios', 'historico', 'configuracoes', 'administracao'];
 export const ROLES = ['admin', 'gestor', 'analista', 'visualizador'];
 
 export const DEFAULT_SETTINGS = {
@@ -171,6 +188,8 @@ export const DEFAULT_SETTINGS = {
   appearance: { theme: 'dark', animations: true },
   targets: { netMargin: 18 },
   cash: { balance: null, date: null, minimum: 0 },
+  alerts: { rules: { cliente: true, meta: true, caixa: true, conta: true, produto: true }, metaPct: 95, productDrop: 35 },
+  email: { enabled: false, time: '08:00', days: 'uteis', to: [], user: '', appPassword: '', lastSent: null },
   org: { currency: 'BRL', timezone: 'America/Sao_Paulo' },
   schedules: { weekly: { enabled: true, weekday: 1, hour: 8 }, monthly: { enabled: true, day: 1, hour: 9 } },
   security: { strongPassword: true, sessionHours: 12 },
@@ -182,6 +201,7 @@ export const DEFAULT_SETTINGS = {
     vendas: { admin: true, gestor: true, analista: true, visualizador: true },
     metas: { admin: true, gestor: true, analista: true, visualizador: false },
     fluxo: { admin: true, gestor: true, analista: false, visualizador: false },
+    alertas: { admin: true, gestor: true, analista: true, visualizador: false },
     importacao: { admin: true, gestor: true, analista: false, visualizador: false },
     relatorios: { admin: true, gestor: true, analista: true, visualizador: false },
     historico: { admin: true, gestor: true, analista: false, visualizador: false },

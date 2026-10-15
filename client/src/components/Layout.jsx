@@ -1,3 +1,5 @@
+import { useEffect, useState } from 'react';
+import { api } from '../api.js';
 import { NavLink, Link } from 'react-router-dom';
 import { useAuth } from '../auth.jsx';
 import { Icon, BrandMark } from './ui.jsx';
@@ -9,6 +11,7 @@ export const NAV = [
   { to: '/vendas', key: 'vendas', label: 'Vendas e indicadores', icon: 'trend' },
   { to: '/metas', key: 'metas', label: 'Metas', icon: 'target' },
   { to: '/fluxo-de-caixa', key: 'fluxo', label: 'Fluxo de caixa', icon: 'wallet' },
+  { to: '/alertas', key: 'alertas', label: 'Alertas', icon: 'bell' },
   { to: '/importacao', key: 'importacao', label: 'Importação e backup', icon: 'upload' },
   { to: '/relatorios', key: 'relatorios', label: 'Relatórios', icon: 'file' },
   { to: '/historico', key: 'historico', label: 'Histórico', icon: 'clock' },
@@ -18,6 +21,16 @@ export const NAV = [
 
 export default function Layout({ children }) {
   const { me, logout } = useAuth();
+  const [unread, setUnread] = useState(0);
+  useEffect(() => {
+    if (!me.permissions.alertas) return undefined;
+    let alive = true;
+    const load = () => api('/alerts/count').then((r) => alive && setUnread(r.unread)).catch(() => {});
+    load();
+    const t = setInterval(load, 60e3);
+    window.addEventListener('cortex:alerts', load);
+    return () => { alive = false; clearInterval(t); window.removeEventListener('cortex:alerts', load); };
+  }, [me.permissions.alertas]);
   return (
     <div className="app">
       <aside className="side">
@@ -33,6 +46,7 @@ export default function Layout({ children }) {
           {NAV.filter((n) => me.permissions[n.key]).map((n) => (
             <NavLink key={n.to} to={n.to} end={n.to === '/'} className={({ isActive }) => (isActive ? 'active' : '')}>
               <Icon name={n.icon} />{n.label}
+              {n.key === 'alertas' && unread > 0 && <span className="nav-count" aria-label={`${unread} não lidos`}>{unread}</span>}
             </NavLink>
           ))}
         </nav>

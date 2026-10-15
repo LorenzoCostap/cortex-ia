@@ -5,6 +5,8 @@ import { useAuth } from '../auth.jsx';
 import { PageHead } from '../components/Layout.jsx';
 import { Icon, Markdown, Spinner, useAsync, useToast } from '../components/ui.jsx';
 import { relTime } from '../format.js';
+import MiniChart from '../components/MiniChart.jsx';
+import { canListen, canSpeak, useDictation, speak, stopSpeaking } from '../voice.js';
 
 const SUGGESTIONS = [
   'Por que meu faturamento caiu neste mês?',
@@ -13,7 +15,8 @@ const SUGGESTIONS = [
   'Qual foi minha margem de lucro no período?',
   'Compare o desempenho deste mês com o anterior.',
   'Gere um relatório executivo da semana.',
-  'Quais indicadores merecem minha atenção?'
+  'Quais indicadores merecem minha atenção?',
+  'Como está meu fluxo de caixa?'
 ];
 
 function AiAvatar() {
@@ -23,6 +26,7 @@ function AiAvatar() {
 function AssistantMessage({ m, question, showTools }) {
   const toast = useToast();
   const [sent, setSent] = useState(false);
+  const [talking, setTalking] = useState(false);
   if (m.status === 'thinking') {
     return (
       <article className="rise" aria-live="polite" style={{ display: 'flex', gap: 14 }}>
@@ -59,6 +63,7 @@ function AssistantMessage({ m, question, showTools }) {
       <div className="card" style={{ flex: 1, borderRadius: '4px 16px 16px 16px', padding: '20px 22px', gap: 14, fontSize: 15, color: 'var(--text-2)' }}>
         {m.notice && <div className="alert warn" style={{ fontSize: 13, padding: '10px 12px' }}><Icon name="info" size={16} color="var(--amber)" /><span>Resposta automática — a IA local não está disponível.</span></div>}
         <Markdown text={m.content} />
+        <MiniChart chart={m.chart} />
         {showTools && m.tools?.length > 0 && (
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center', fontSize: 12, color: 'var(--dim)' }}>
             <span>Dados consultados:</span>
@@ -68,6 +73,7 @@ function AssistantMessage({ m, question, showTools }) {
         )}
         <div className="toolbar" style={{ borderTop: '1px solid var(--line-soft)', paddingTop: 14, gap: 8 }}>
           <button className="btn sm" onClick={toTv} disabled={sent}><Icon name="tv" size={15} color="var(--violet-text)" />{sent ? 'Exibindo na TV' : 'Enviar para a TV'}</button>
+          {canSpeak && <button className="btn sm" onClick={() => { if (talking) { stopSpeaking(); setTalking(false); } else { setTalking(true); speak(m.content, { onEnd: () => setTalking(false) }); } }}><Icon name={talking ? 'stop' : 'volume'} size={15} color="var(--muted)" />{talking ? 'Parar' : 'Ouvir'}</button>}
           <Link className="btn sm" to="/relatorios"><Icon name="file" size={15} color="var(--muted)" />Gerar relatório</Link>
           <button className="btn sm icon" style={{ width: 36 }} aria-label="Copiar resposta" title="Copiar" onClick={() => { navigator.clipboard?.writeText(m.content.replace(/\*\*/g, '')); toast('Resposta copiada'); }}><Icon name="copy" size={15} color="var(--muted)" /></button>
         </div>
@@ -88,7 +94,11 @@ export default function Assistant() {
   const abortRef = useRef(null);
 
   useEffect(() => { endRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' }); }, [messages]);
-  useEffect(() => () => abortRef.current?.abort(), []);
+  useEffect(() => () => { abortRef.current?.abort(); stopSpeaking(); }, []);
+  const [autoSpeak, setAutoSpeakState] = useState(() => { try { return localStorage.getItem('cortex.voice') === '1'; } catch { return false; } });
+  const autoRef = useRef(autoSpeak); autoRef.current = autoSpeak;
+  const setAutoSpeak = (v) => { setAutoSpeakState(v); if (!v) stopSpeaking(); try { localStorage.setItem('cortex.voice', v ? '1' : '0'); } catch { /* sem storage */ } };
+  const dict = useDictation({ onText: (t) => setDraft(t), onFinal: (t) => send(t) });
 
   const send = async (text) => {
     const q = (text ?? draft).trim();
@@ -103,7 +113,7 @@ export default function Assistant() {
       await askStream(q, history, (ev) => {
         if (ev.type === 'step') update((m) => ({ ...m, steps: [...m.steps, ev.text] }));
         if (ev.type === 'tool') update((m) => ({ ...m, steps: [...m.steps, `Consultando ${ev.name.replace(/_/g, ' ')}`] }));
-        if (ev.type === 'answer') update(() => ({ role: 'assistant', status: 'done', content: ev.answer, tools: ev.tools, rows: ev.rows, notice: ev.notice, ms: ev.ms, mode: ev.mode }));
+        if (ev.type === 'answer') { update(() => ({ role: 'assistant', status: 'done', content: ev.answer, tools: ev.tools, rows: ev.rows, chart: ev.chart, notice: ev.notice, ms: ev.ms, mode: ev.mode })); if (autoRef.current) speak(ev.answer); }
         if (ev.type === 'error') update(() => ({ role: 'assistant', status: 'error', content: ev.error }));
       }, abortRef.current.signal);
       recent.reload();
@@ -123,7 +133,8 @@ export default function Assistant() {
             <span className="pill-dot" style={{ background: !st ? 'var(--dim)' : st.online && st.hasModel ? 'var(--green)' : 'var(--amber)' }} />
             {!st ? 'Verificando IA…' : st.online && st.hasModel ? `Ollama · ${st.model} · local` : st.online ? `Modelo ${st.model} não instalado` : 'IA offline · respostas automáticas'}
           </span>
-          <button className="btn" onClick={() => { abortRef.current?.abort(); setMessages([]); setBusy(false); }}><Icon name="plus" size={16} color="var(--muted)" />Nova conversa</button>
+          {canSpeak && <button className="btn" aria-pressed={autoSpeak} onClick={() => setAutoSpeak(!autoSpeak)} title="Ler as respostas em voz alta automaticamente" style={autoSpeak ? { borderColor: 'var(--violet-line)', background: 'var(--violet-soft)', color: 'var(--violet-text-2)' } : undefined}><Icon name="volume" size={16} color={autoSpeak ? 'var(--violet-text)' : 'var(--muted)'} />{autoSpeak ? 'Leitura em voz ligada' : 'Ler respostas'}</button>}
+          <button className="btn" onClick={() => { abortRef.current?.abort(); stopSpeaking(); setMessages([]); setBusy(false); }}><Icon name="plus" size={16} color="var(--muted)" />Nova conversa</button>
         </PageHead>
 
         {st && !st.online && (
@@ -152,10 +163,12 @@ export default function Assistant() {
           </div>
           <form onSubmit={(e) => { e.preventDefault(); send(); }} style={{ display: 'flex', alignItems: 'flex-end', gap: 10, padding: '10px 10px 10px 18px', borderRadius: 14, background: 'var(--card)', border: '1px solid var(--line-2)' }}>
             <label htmlFor="ask" className="sr">Pergunte ao Cortex</label>
-            <textarea id="ask" rows={2} value={draft} onChange={(e) => setDraft(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } }} placeholder="Pergunte sobre vendas, clientes, despesas… (Enter envia)" style={{ flex: 1, resize: 'none', border: 0, outline: 'none', background: 'transparent', fontSize: 15, lineHeight: 1.5, padding: '6px 0' }} />
+            <textarea id="ask" rows={2} value={draft} onChange={(e) => setDraft(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } }} placeholder={dict.listening ? 'Ouvindo… fale sua pergunta' : 'Pergunte sobre vendas, clientes, despesas… (Enter envia)'} style={{ flex: 1, resize: 'none', border: 0, outline: 'none', background: 'transparent', fontSize: 15, lineHeight: 1.5, padding: '6px 0' }} />
+            {canListen && <button type="button" className={`btn icon${dict.listening ? ' mic-on' : ''}`} aria-label={dict.listening ? 'Parar ditado' : 'Falar a pergunta'} title={dict.listening ? 'Ouvindo… clique para parar' : 'Falar a pergunta (o áudio é transcrito pelo navegador)'} disabled={busy} onClick={() => (dict.listening ? dict.stop() : dict.start())} style={{ width: 44, minHeight: 44 }}><Icon name={dict.listening ? 'stop' : 'mic'} color={dict.listening ? 'var(--red-text)' : 'var(--muted)'} /></button>}
             <button type="submit" className="btn primary icon" aria-label="Enviar pergunta" disabled={busy || !draft.trim()} style={{ width: 44, minHeight: 44 }}>{busy ? <Spinner color="#fff" /> : <Icon name="up" color="#fff" width={2} />}</button>
           </form>
-          <p className="dim" style={{ fontSize: 12 }}>As contas são feitas pelo sistema; a IA apenas interpreta os resultados. Nada sai do seu computador.</p>
+          {dict.error && <p role="status" style={{ fontSize: 12, color: 'var(--amber-text)' }}>{dict.error}</p>}
+          <p className="dim" style={{ fontSize: 12 }}>As contas são feitas pelo sistema; a IA apenas interpreta os resultados. Dados e respostas ficam no seu computador{canListen ? ' — só o áudio do ditado (microfone) é transcrito pelo serviço do navegador' : ''}.</p>
         </div>
       </div>
 
@@ -182,7 +195,7 @@ export default function Assistant() {
         </section>
         <section style={{ border: '1px dashed var(--line-2)', borderRadius: 14, padding: '18px 20px', display: 'flex', gap: 12, fontSize: 13, color: 'var(--muted)', lineHeight: 1.55 }}>
           <Icon name="shield" color="var(--violet-text)" style={{ flex: 'none', marginTop: 1 }} />
-          <span>Processamento 100% local via Ollama. Perguntas e dados não são enviados para a internet.</span>
+          <span>Processamento 100% local via Ollama. Perguntas e dados não são enviados para a internet{canListen ? ' (exceto o áudio, se você usar o microfone)' : ''}.</span>
         </section>
       </aside>
     </div>

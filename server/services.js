@@ -1,5 +1,7 @@
 // Insights automáticos, relatórios, agendamentos, pasta monitorada, backup e o canal ao vivo da TV.
 import fs from 'node:fs';
+import { maybeRefreshAlerts } from './alerts.js';
+import { runDailyEmail } from './mailer.js';
 import path from 'node:path';
 import { readFile, detectType, autoMap, validate, commit } from './importer.js';
 import { runBackup, listBackups } from './backup.js';
@@ -221,7 +223,7 @@ async function runScheduledBackup(orgId) {
 export function startScheduler() {
   const tick = async () => {
     for (const { id } of db.prepare('SELECT id FROM organizations').all()) {
-      try { runSchedules(id); await scanWatchFolder(id); await runScheduledBackup(id); await refreshInsights(id); } catch (e) { console.error('[agendador]', e.message); }
+      try { runSchedules(id); await scanWatchFolder(id); await runScheduledBackup(id); await refreshInsights(id); maybeRefreshAlerts(id, 15); await runDailyEmail(id); } catch (e) { console.error('[agendador]', e.message); }
     }
   };
   tick();

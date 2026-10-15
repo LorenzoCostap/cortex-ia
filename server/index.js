@@ -5,6 +5,8 @@ import os from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { cashflow } from './cashflow.js';
 import { customerDetail } from './customers.js';
+import { RULES, refreshAlerts, listAlerts, unreadCount, maybeRefreshAlerts } from './alerts.js';
+import { buildSummary, sendSummary } from './mailer.js';
 import { db, getSettings, saveSettings, logEvent, MODULES, ROLES } from './db.js';
 import { loadUser, requireAuth, requirePerm, can, createSession, destroySession, verifyPassword, hashPassword, passwordProblem } from './auth.js';
 import * as M from './metrics.js';
@@ -108,7 +110,7 @@ app.post('/api/ai/ask', requirePerm('assistente'), wrap(async (req, res) => {
   try {
     const out = await ask({ org: org(req), orgName: req.user.org_name, ai: getSettings(org(req)).ai, question, history }, send);
     const ms = Date.now() - started;
-    logEvent(org(req), req.user.id, 'ai', question, 'ok', { answer: out.answer, tools: out.tools, mode: out.mode, ms });
+    logEvent(org(req), req.user.id, 'ai', question, 'ok', { answer: out.answer, tools: out.tools, mode: out.mode, chart: out.chart || null, ms });
     send({ type: 'answer', ...out, ms });
   } catch (e) {
     logEvent(org(req), req.user.id, 'ai', question, 'erro', { error: e.message });
@@ -193,7 +195,9 @@ app.get('/api/history', requirePerm('historico'), (req, res) => {
 /* ---------- Configurações ---------- */
 app.get('/api/settings', requirePerm('configuracoes'), (req, res) => {
   const o = db.prepare('SELECT slug, name, segment, cnpj FROM organizations WHERE id = ?').get(org(req));
-  res.json({ org: o, settings: getSettings(org(req)) });
+  const settings = getSettings(org(req));
+  settings.email = { ...settings.email, appPassword: settings.email.appPassword ? '••••' : '' }; // a senha de app nunca sai do servidor
+  res.json({ org: o, settings });
 });
 
 app.put('/api/settings', requirePerm('configuracoes'), (req, res) => {
@@ -390,6 +394,63 @@ app.post('/api/goals/copy-last-year', requirePerm('metas'), (req, res) => {
   }
   res.json({ suggestions: out });
 });
+
+/* ---------- Alertas e resumo diário ---------- */
+app.get('/api/alerts', requirePerm('alertas'), (req, res) => {
+  if (req.query.refresh) refreshAlerts(org(req)); else maybeRefreshAlerts(org(req));
+  const s = getSettings(org(req));
+  res.json({ alerts: listAlerts(org(req)), unread: unreadCount(org(req)), rules: RULES, config: s.alerts, cashMinimum: s.cash.minimum, canEdit: can(req.user, 'configuracoes') });
+});
+app.get('/api/alerts/count', requireAuth, (req, res) => {
+  if (!can(req.user, 'alertas')) return res.json({ unread: 0 });
+  maybeRefreshAlerts(org(req));
+  res.json({ unread: unreadCount(org(req)) });
+});
+app.post('/api/alerts/read-all', requirePerm('alertas'), (req, res) => {
+  db.prepare("UPDATE alerts SET read_at = datetime('now') WHERE org_id = ? AND read_at IS NULL AND resolved_at IS NULL").run(org(req));
+  res.json({ ok: true });
+});
+app.post('/api/alerts/:id/read', requirePerm('alertas'), (req, res) => {
+  db.prepare("UPDATE alerts SET read_at = CASE WHEN ? THEN NULL ELSE datetime('now') END WHERE id = ? AND org_id = ?").run(req.body?.unread ? 1 : 0, +req.params.id, org(req));
+  res.json({ ok: true });
+});
+app.put('/api/alerts/config', requirePerm('configuracoes'), (req, res) => {
+  const b = req.body || {};
+  const rules = Object.fromEntries(RULES.map((r) => [r.key, b.rules?.[r.key] !== false]));
+  const clamp = (v, lo, hi, d) => (Number.isFinite(+v) ? Math.min(hi, Math.max(lo, +v)) : d);
+  saveSettings(org(req), { alerts: { rules, metaPct: clamp(b.metaPct, 50, 100, 95), productDrop: clamp(b.productDrop, 10, 90, 35) } });
+  refreshAlerts(org(req));
+  logEvent(org(req), req.user.id, 'config', 'Regras de alerta atualizadas');
+  res.json({ ok: true });
+});
+
+const publicEmail = (e) => ({ enabled: e.enabled, time: e.time, days: e.days, to: e.to, user: e.user, hasPassword: !!e.appPassword, lastSent: e.lastSent });
+const baseUrl = (req) => `${req.protocol}://${req.get('host')}`;
+app.get('/api/email', requirePerm('alertas'), (req, res) => {
+  res.json({ ...publicEmail(getSettings(org(req)).email), preview: buildSummary(org(req), { name: req.user.name, baseUrl: baseUrl(req) }) });
+});
+app.put('/api/email', requirePerm('configuracoes'), (req, res) => {
+  const b = req.body || {};
+  const emailRe = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  const to = (Array.isArray(b.to) ? b.to : []).map((x) => String(x).trim().toLowerCase()).filter(Boolean);
+  const bad = to.find((x) => !emailRe.test(x)) || (b.user && !emailRe.test(b.user) ? b.user : null);
+  if (bad) return res.status(400).json({ error: `E-mail inválido: ${bad}` });
+  if (b.time && !/^([01]\d|2[0-3]):[0-5]\d$/.test(b.time)) return res.status(400).json({ error: 'Horário inválido.' });
+  const patch = { enabled: !!b.enabled, time: b.time || '08:00', days: b.days === 'todos' ? 'todos' : 'uteis', to: [...new Set(to)], user: String(b.user || '').trim() };
+  if (typeof b.appPassword === 'string' && b.appPassword.trim()) patch.appPassword = b.appPassword.replace(/\s/g, '');
+  if (b.clearPassword) patch.appPassword = '';
+  const s = saveSettings(org(req), { email: patch });
+  logEvent(org(req), req.user.id, 'config', `Resumo diário ${patch.enabled ? 'ligado' : 'desligado'}`);
+  res.json(publicEmail(s.email));
+});
+app.post('/api/email/test', requirePerm('configuracoes'), wrap(async (req, res) => {
+  const to = String(req.body?.to || req.user.email);
+  try {
+    const r = await sendSummary(org(req), to, { name: req.user.name, baseUrl: baseUrl(req) });
+    logEvent(org(req), req.user.id, 'report', `E-mail de teste enviado para ${to}`);
+    res.json(r);
+  } catch (e) { res.status(400).json({ error: e.message }); }
+}));
 
 /* ---------- Clientes ---------- */
 app.get('/api/customers/:id', requirePerm('vendas'), (req, res) => {

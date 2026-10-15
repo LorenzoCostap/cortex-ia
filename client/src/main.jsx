@@ -15,6 +15,7 @@ import Import from './pages/Import.jsx';
 import Goals from './pages/Goals.jsx';
 import CashFlow from './pages/CashFlow.jsx';
 import Customer from './pages/Customer.jsx';
+import Alerts from './pages/Alerts.jsx';
 import Reports from './pages/Reports.jsx';
 import History from './pages/History.jsx';
 import Settings from './pages/Settings.jsx';
@@ -44,6 +45,7 @@ function AppRoutes() {
       <Route path="/clientes/:id" element={<Guard perm="vendas"><Customer /></Guard>} />
       <Route path="/metas" element={<Guard perm="metas"><Goals /></Guard>} />
       <Route path="/fluxo-de-caixa" element={<Guard perm="fluxo"><CashFlow /></Guard>} />
+      <Route path="/alertas" element={<Guard perm="alertas"><Alerts /></Guard>} />
       <Route path="/importacao" element={<Guard perm="importacao"><Import /></Guard>} />
       <Route path="/relatorios" element={<Guard perm="relatorios"><Reports /></Guard>} />
       <Route path="/relatorios/:id" element={<Guard perm="relatorios"><Reports /></Guard>} />

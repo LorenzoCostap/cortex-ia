@@ -2,6 +2,7 @@
 // a IA escolhe qual função de métricas chamar, o Node calcula, e a IA só explica o resultado.
 import * as M from './metrics.js';
 import { cashflow } from './cashflow.js';
+import { chartFromTool, chartForIntent } from './charts.js';
 import { todayStr, refMonth, monthEnd, addMonths, monthStart, monthLabel, isIso, weekRange, addDays } from './dates.js';
 import { answerIntent, detectIntent, helpAnswer } from './answers.js';
 
@@ -112,11 +113,12 @@ export async function ask({ org, orgName, ai, question, history = [] }, onEvent 
     onEvent({ type: 'step', text: status.online ? `Modelo ${ai.model} não encontrado — usando respostas automáticas` : 'IA local offline — usando respostas automáticas' });
     const res = intent ? answerIntent(org, intent) : helpAnswer();
     for (const t of res.tools) onEvent({ type: 'tool', name: t });
-    return { answer: res.answer, tools: res.tools, rows: res.rows, mode: 'automatico', notice: status.online ? `O modelo "${ai.model}" não está instalado. Rode: ollama pull ${ai.model}` : 'O Ollama não está rodando. Inicie com: ollama serve' };
+    return { answer: res.answer, tools: res.tools, rows: res.rows, chart: intent ? chartForIntent(org, intent) : null, mode: 'automatico', notice: status.online ? `O modelo "${ai.model}" não está instalado. Rode: ollama pull ${ai.model}` : 'O Ollama não está rodando. Inicie com: ollama serve' };
   }
 
   const messages = [{ role: 'system', content: systemPrompt(orgName) }, ...history.slice(-6), { role: 'user', content: question }];
   const tools = [];
+  let chart = null;
   const url = `${ai.url.replace(/\/$/, '')}/api/chat`;
   for (let round = 0; round < 5; round++) {
     onEvent({ type: 'step', text: round === 0 ? 'Entendendo a pergunta' : 'Analisando os dados' });
@@ -132,12 +134,13 @@ export async function ask({ org, orgName, ai, question, history = [] }, onEvent 
         tools.push(name);
         let result;
         try { result = runTool(org, name, args); } catch (e) { result = { erro: e.message }; }
+        chart = chartFromTool(name, result) || chart;
         messages.push({ role: 'tool', tool_name: name, content: JSON.stringify(result) });
       }
       continue;
     }
     onEvent({ type: 'step', text: 'Escrevendo a resposta' });
-    return { answer: (msg.content || '').trim() || 'Não consegui gerar uma resposta. Tente reformular a pergunta.', tools, mode: 'ia' };
+    return { answer: (msg.content || '').trim() || 'Não consegui gerar uma resposta. Tente reformular a pergunta.', tools, chart, mode: 'ia' };
   }
   return { answer: 'A análise ficou longa demais. Tente uma pergunta mais específica.', tools, mode: 'ia' };
 }

@@ -40,6 +40,8 @@ ollama serve
 
 O modelo e o endereço podem ser trocados em **Configurações**. Sem o Ollama, as 7 perguntas frequentes continuam funcionando com respostas automáticas.
 
+**Gráficos e voz:** as respostas trazem um mini gráfico quando ajuda (queda, comparação, produtos, clientes, margem, caixa). No Chrome/Edge dá para falar a pergunta pelo microfone (o áudio é transcrito pelo serviço do navegador, então precisa de internet) e ouvir as respostas (vozes do sistema, funciona offline).
+
 **Como a IA funciona:** ela nunca faz contas. O modelo escolhe uma “ferramenta” (`comparar_periodos`, `top_produtos`, `clientes_em_queda`…), o Node calcula os números no SQLite e a IA só explica o resultado.
 
 ## Seus dados
@@ -50,6 +52,8 @@ O modelo e o endereço podem ser trocados em **Configurações**. Sem o Ollama, 
 - **Metas:** por mês, por vendedor e por categoria, com previsão de fechamento do mês no ritmo atual.
 - **Comparações:** Dashboard e Vendas comparam com o período anterior ou com o mesmo período do ano anterior (botão no topo). O gráfico do Dashboard alterna entre Receita × meta e Receitas × despesas.
 - **Clientes:** em Vendas, clique num cliente (ou em “Clientes comprando menos” no Dashboard) para ver compras mês a mês contra o ano anterior, frequência, produtos que caíram, últimos pedidos e a leitura do Cortex.
+- **Alertas:** o Cortex vigia clientes fora do ritmo, meta em risco, saldo abaixo do mínimo, contas vencidas e produtos em queda (a cada 15 minutos). O contador aparece no menu; as regras se ligam e desligam na própria tela.
+- **Resumo diário por e-mail:** em Alertas, informe uma conta Gmail e uma [senha de app](https://myaccount.google.com/apppasswords) (exige verificação em duas etapas), os destinatários e o horário. O computador precisa estar ligado com o Cortex rodando no horário do envio.
 - **Fluxo de caixa:** informe o saldo de hoje e o mínimo de segurança; o Cortex projeta 30, 60 ou 90 dias com as contas a pagar e a receber e a média de vendas das últimas 12 semanas, avisa quando o saldo vai ficar abaixo do mínimo e permite dar baixa nas contas. Com o saldo informado, a TV mostra o saldo projetado.
 
 ## Comandos
