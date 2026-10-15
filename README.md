@@ -24,6 +24,18 @@ Abra **http://localhost:3210** e entre com:
 
 Na primeira execução o Cortex cria o banco (`data/cortex.db`) com 2 anos de dados fictícios.
 
+### Iniciar junto com o Windows
+
+Para o computador do escritório (ou o PC ligado na TV), rode uma vez na pasta do projeto:
+
+```bash
+npm run windows:instalar            # o Cortex sobe sozinho ao ligar o PC + atalhos na Área de trabalho
+npm run windows:instalar -- --tv    # idem, e já abre o modo TV em tela cheia (PC da TV)
+npm run windows:remover             # desfaz
+```
+
+O Cortex roda escondido (sem janela preta). Na Área de trabalho ficam os atalhos **Cortex IA**, **Cortex IA - Modo TV** e **Iniciar Cortex IA** (se alguém fechar). O registro de funcionamento fica em `data/cortex.log`.
+
 ### Modo TV
 
 - Neste computador: `npm run tv` (abre o Chrome/Edge em tela cheia) ou acesse `http://localhost:3210/tv`.
@@ -112,6 +124,8 @@ O que o Cortex precisa para calcular tudo:
 | `npm run tv` | Abre o modo TV em tela cheia |
 | `npm run seed` | Recria os dados de demonstração |
 | `npm run org:create -- --slug minha-empresa --name "Minha Empresa" --admin "Nome" --email voce@empresa.com --password senha1234` | Cria outra organização com login próprio |
+| `npm run windows:instalar` | Inicia o Cortex com o Windows e cria atalhos (`-- --tv` abre a TV junto) |
+| `npm run benchmark` | Teste de carga: cria uma empresa grande num banco separado e mede o tempo de cada tela |
 | `npm test` | Testes (inclui a IA com um Ollama simulado) |
 
 ## Segurança e auditoria
