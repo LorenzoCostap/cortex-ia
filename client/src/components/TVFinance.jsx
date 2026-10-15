@@ -107,9 +107,12 @@ export default function TVFinance({ data, goal, periodText, hide, widget }) {
   const targetMargin = data.targets?.netMargin ?? 18;
   const last = d.series[d.series.length - 1];
   const revGoal = last?.goal || 0;
-  const expBudget = revGoal * (1 - targetMargin / 100);
+  // Orçamento cadastrado (despesas operacionais) quando existir; senão, estimado pela margem-alvo (despesas totais)
+  const bud = data.budget;
+  const expBudget = bud ? bud.budget : revGoal * (1 - targetMargin / 100);
+  const expSpent = bud ? k.opex : k.expenses;
   const revPct = revGoal ? (k.revenue / revGoal) * 100 : null;
-  const expPct = expBudget ? (k.expenses / expBudget) * 100 : null;
+  const expPct = expBudget ? (expSpent / expBudget) * 100 : null;
   const buckets = goal?.buckets?.length ? goal.buckets : d.series.map((s) => ({ key: s.month, label: s.label, full: s.full, revenue: s.revenue, expenses: s.expenses }));
   let acc = 0;
   const cumulative = d.series.map((s) => (acc += s.profit));
@@ -153,7 +156,7 @@ export default function TVFinance({ data, goal, periodText, hide, widget }) {
         </section>
         {[
           { title: '% da meta de receita', pct: revPct, color: C.rev, l1: 'Meta', v1: revGoal, l2: revPct >= 100 ? 'Superou' : 'Faltaram', v2: k.revenue - revGoal, good: revPct >= 100 },
-          { title: '% do orçamento de despesas', pct: expPct, color: C.exp, l1: 'Orçamento', v1: expBudget, l2: expPct <= 100 ? 'Economia' : 'Estouro', v2: expBudget - k.expenses, good: expPct <= 100 }
+          { title: bud ? '% do orçamento de despesas' : '% do orçamento estimado', pct: expPct, color: C.exp, l1: bud ? 'Orçamento' : 'Estimado', v1: expBudget, l2: expPct <= 100 ? 'Economia' : 'Estouro', v2: expBudget - expSpent, good: expPct <= 100 }
         ].map((g) => (
           <section key={g.title} style={{ ...box, padding: '18px 22px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8 }}>
             <h2 style={{ fontSize: 18, fontWeight: 600, textAlign: 'center' }}>{g.title}</h2>

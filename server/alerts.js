@@ -10,6 +10,7 @@ export const RULES = [
   { key: 'meta', title: 'Meta do mês em risco', text: 'Previsão de fechamento abaixo do percentual definido' },
   { key: 'caixa', title: 'Saldo abaixo do mínimo', text: 'Quando a projeção do fluxo de caixa fura o mínimo de segurança' },
   { key: 'conta', title: 'Conta vencida', text: 'A pagar vencida, ou a receber vencida há mais de 7 dias' },
+  { key: 'orcamento', title: 'Orçamento de despesa estourado', text: 'Quando uma categoria de despesa passa do valor orçado no mês' },
   { key: 'produto', title: 'Produto em queda', text: 'Vendas das últimas 2 semanas abaixo da média das 8 anteriores' }
 ];
 
@@ -94,6 +95,18 @@ function productAlerts(org, today, dropPct) {
       link: '/vendas', cta: 'Ver vendas' }));
 }
 
+function budgetAlerts(org, today) {
+  const month = today.slice(0, 7);
+  const items = M.goalItems(org, month, 'despesa').filter((i) => i.target);
+  const ms = `${month}-01`, me = monthEnd(ms);
+  const mes = monthLabel(ms).split(' ')[0].toLowerCase();
+  return items.flatMap((i) => {
+    if (i.realized > i.target) return [{ key: `orcamento:${month}:${i.key}`, rule: 'orcamento', category: 'financeiro', severity: i.realized > i.target * 1.1 ? 'alta' : 'media', title: `${i.key}: orçamento de ${mes} estourado`,
+      text: `Gasto de ${brl(i.realized)} contra ${brl(i.target)} orçados (${Math.round(i.pct)}%) — ${brl(i.realized - i.target)} acima.`, link: '/metas?aba=despesa', cta: 'Ver orçamento' }];
+    return [];
+  });
+}
+
 export function evaluate(org) {
   const today = todayStr();
   const cfg = getSettings(org).alerts;
@@ -104,6 +117,7 @@ export function evaluate(org) {
   if (on.meta) safe(() => goalAlert(org, +cfg.metaPct || 95));
   if (on.caixa) safe(() => cashAlert(org));
   if (on.conta) safe(() => billAlerts(org, today));
+  if (on.orcamento !== false) safe(() => budgetAlerts(org, today));
   if (on.produto) safe(() => productAlerts(org, today, +cfg.productDrop || 35));
   return all;
 }

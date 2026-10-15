@@ -74,3 +74,17 @@ test('modo sem IA não conecta ao Ollama e responde por regras', async () => {
   assert.equal(called, 0, 'nenhuma chamada de rede');
   globalThis.fetch = realFetch;
 });
+
+test('orçamento de despesas por categoria', async () => {
+  const M = await import('../server/metrics.js');
+  const month = new Date().toISOString().slice(0, 7);
+  db.prepare("DELETE FROM goal_items WHERE org_id = ? AND dim = 'despesa'").run(org);
+  assert.equal(M.budgetSummary(org, `${month}-01`), null, 'sem orçamento cadastrado');
+  const spent = db.prepare("SELECT category, SUM(amount) v FROM expenses WHERE org_id = ? AND substr(date,1,7) = ? GROUP BY category ORDER BY v DESC LIMIT 1").get(org, month);
+  db.prepare("INSERT INTO goal_items (org_id, month, dim, key, target) VALUES (?, ?, 'despesa', ?, ?)").run(org, month, spent.category, Math.floor(spent.v / 2));
+  const b = M.budgetSummary(org, `${month}-01`);
+  assert.equal(b.over.length, 1);
+  saveSettings(org, { alerts: { rules: { orcamento: true } } });
+  A.refreshAlerts(org);
+  assert.ok(A.listAlerts(org).some((a) => a.rule === 'orcamento' && a.title.startsWith(spent.category)));
+});

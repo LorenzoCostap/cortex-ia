@@ -176,6 +176,15 @@ export function generateDemoData(orgId, today = todayStr()) {
       }
     }
 
+    // Orçamento de despesas por categoria (média dos 3 meses anteriores, arredondada); Pessoal apertado para gerar um alerta
+    const avgExp = (m) => db.prepare('SELECT category k, SUM(amount) / 3.0 v FROM expenses WHERE org_id = ? AND date >= ? AND date < ? GROUP BY category').all(orgId, addMonths(m, -3), m);
+    for (const m of [REF, monthStart(today)]) {
+      for (const r of avgExp(m)) {
+        const t = r.k === 'Pessoal' && m === monthStart(today) ? 34000 : Math.ceil((r.v * 1.03) / 500) * 500;
+        insGI.run(orgId, monthKey(m), 'despesa', r.k, t);
+      }
+    }
+
     // Contas a pagar e a receber
     const insB = db.prepare('INSERT INTO bills (org_id, kind, party, due_date, amount, paid_at) VALUES (?, ?, ?, ?, ?, ?)');
     [['Torrefação Serra Alta', -4, 18400], ['Aluguel do galpão', 0, 12000], ['Transportadora Rota 116', 3, 6750], ['Energia elétrica', 6, 2310], ['Distribuidora Sul Grãos', 12, 23900], ['Laticínios Vale Verde', 17, 9870]]

@@ -199,7 +199,7 @@ export const DEFAULT_SETTINGS = {
   appearance: { theme: 'dark', animations: true },
   targets: { netMargin: 18 },
   cash: { balance: null, date: null, minimum: 0 },
-  alerts: { rules: { cliente: true, meta: true, caixa: true, conta: true, produto: true }, metaPct: 95, productDrop: 35 },
+  alerts: { rules: { cliente: true, meta: true, caixa: true, conta: true, orcamento: true, produto: true }, metaPct: 95, productDrop: 35 },
   email: { enabled: false, time: '08:00', days: 'uteis', to: [], user: '', appPassword: '', lastSent: null },
   org: { currency: 'BRL', timezone: 'America/Sao_Paulo' },
   schedules: { weekly: { enabled: true, weekday: 1, hour: 8 }, monthly: { enabled: true, day: 1, hour: 9 } },

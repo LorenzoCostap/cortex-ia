@@ -145,7 +145,7 @@ app.get('/api/tv/data', requireAuth, (req, res) => {
     categories: M.categoryBreakdown(o, from, to), topCustomers: M.customersDeclining(o, from, to, 5),
     expenses: M.expensesByCategory(o, from, to), receivables: M.bills(o, 'receber', { days: 15 }).slice(0, 6), payables: M.bills(o, 'pagar', { days: 15 }).slice(0, 6),
     payables7: M.bills(o, 'pagar', { days: 7 }).reduce((s, b) => s + b.amount, 0),
-    forecast: M.forecast(o), targets: getSettings(o).targets, ranking: teamView(o), aiEnabled: getSettings(o).ai.enabled !== false,
+    forecast: M.forecast(o), targets: getSettings(o).targets, ranking: teamView(o), budget: M.budgetSummary(o, r), aiEnabled: getSettings(o).ai.enabled !== false,
     cashflow: (() => { const c = cashflow(o, 90); return c.hasBalance ? { balance: c.balance, minimum: c.minimum, endBalance: c.endBalance, minBalance: c.minBalance, firstBelow: c.firstBelow, weeks: c.weeks.map((w) => ({ label: w.label, balance: w.balance })) } : null; })()
   });
 });
@@ -381,7 +381,7 @@ app.post('/api/backup/restore', requirePerm('administracao'), wrap(async (req, r
 /* ---------- Metas ---------- */
 app.get('/api/goals', requirePerm('metas'), (req, res) => {
   const month = /^\d{4}-\d{2}$/.test(req.query.month || '') ? req.query.month : todayStr().slice(0, 7);
-  res.json({ month, months: M.goalsOverview(org(req)), forecast: M.forecast(org(req), `${month}-01`), vendedor: M.goalItems(org(req), month, 'vendedor'), categoria: M.goalItems(org(req), month, 'categoria') });
+  res.json({ month, months: M.goalsOverview(org(req)), forecast: M.forecast(org(req), `${month}-01`), vendedor: M.goalItems(org(req), month, 'vendedor'), categoria: M.goalItems(org(req), month, 'categoria'), despesa: M.goalItems(org(req), month, 'despesa') });
 });
 
 app.put('/api/goals', requirePerm('metas'), (req, res) => {
@@ -394,7 +394,7 @@ app.put('/api/goals', requirePerm('metas'), (req, res) => {
       else if (+g.target >= 0) db.prepare('INSERT INTO goals (org_id, month, revenue_target) VALUES (?, ?, ?) ON CONFLICT(org_id, month) DO UPDATE SET revenue_target = excluded.revenue_target').run(org(req), g.month, +g.target);
     }
     for (const it of items) {
-      if (!ok(it.month) || !['vendedor', 'categoria'].includes(it.dim) || !it.key) continue;
+      if (!ok(it.month) || !['vendedor', 'categoria', 'despesa'].includes(it.dim) || !it.key) continue;
       if (it.target === null || it.target === '') db.prepare('DELETE FROM goal_items WHERE org_id = ? AND month = ? AND dim = ? AND key = ?').run(org(req), it.month, it.dim, it.key);
       else db.prepare('INSERT INTO goal_items (org_id, month, dim, key, target) VALUES (?, ?, ?, ?, ?) ON CONFLICT(org_id, month, dim, key) DO UPDATE SET target = excluded.target').run(org(req), it.month, it.dim, String(it.key), +it.target);
     }

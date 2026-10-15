@@ -441,9 +441,31 @@ export function goalsOverview(org) {
   return out;
 }
 
+/** Orçamento de despesas por categoria: orçado × gasto no mês, com a média dos 3 meses anteriores como referência. */
+function expenseBudget(org, month, targets) {
+  const ms = `${month}-01`, me = monthEnd(ms), today = todayStr();
+  const spent = Object.fromEntries(db.prepare('SELECT category k, SUM(amount) v FROM expenses WHERE org_id = ? AND date BETWEEN ? AND ? GROUP BY category').all(org, ms, me).map((r) => [r.k, r.v]));
+  const avg = Object.fromEntries(db.prepare('SELECT category k, SUM(amount) / 3.0 v FROM expenses WHERE org_id = ? AND date BETWEEN ? AND ? GROUP BY category').all(org, addMonths(ms, -3), addDays(ms, -1)).map((r) => [r.k, r.v]));
+  const keys = [...new Set([...Object.keys(targets), ...Object.keys(spent), ...Object.keys(avg)])];
+  const closed = me < today;
+  return keys.map((k) => {
+    const target = targets[k] ?? null, realized = r2(spent[k] || 0);
+    return { key: k, target, realized, average: r2(avg[k] || 0), pct: target ? r2((realized / target) * 100) : null, over: target ? realized > target : false, closed };
+  }).sort((a, b) => (b.target || b.average || b.realized) - (a.target || a.average || a.realized));
+}
+
+/** Resumo do orçamento de despesas do mês (soma das categorias com orçamento). */
+export function budgetSummary(org, month = todayStr()) {
+  const items = goalItems(org, monthKey(month), 'despesa').filter((i) => i.target);
+  if (!items.length) return null;
+  const budget = items.reduce((s, i) => s + i.target, 0), spent = items.reduce((s, i) => s + i.realized, 0);
+  return { month: monthKey(month), label: monthLabel(month), budget: r2(budget), spent: r2(spent), pct: r2((spent / budget) * 100), over: items.filter((i) => i.over).map((i) => ({ category: i.key, spent: i.realized, target: i.target })) };
+}
+
 export function goalItems(org, month, dim) {
   const ms = `${month}-01`, me = monthEnd(ms);
   const targets = Object.fromEntries(db.prepare('SELECT key, target FROM goal_items WHERE org_id = ? AND month = ? AND dim = ?').all(org, month, dim).map((r) => [r.key, r.target]));
+  if (dim === 'despesa') return expenseBudget(org, month, targets);
   const real = dim === 'vendedor'
     ? db.prepare("SELECT COALESCE(seller, 'Sem vendedor') k, SUM(total) v, COUNT(DISTINCT customer_id) c FROM orders WHERE org_id = ? AND date BETWEEN ? AND ? GROUP BY k").all(org, ms, me)
     : db.prepare('SELECT p.category k, SUM(i.qty*i.unit_price) v FROM order_items i JOIN orders o ON o.id = i.order_id JOIN products p ON p.id = i.product_id WHERE o.org_id = ? AND o.date BETWEEN ? AND ? GROUP BY p.category').all(org, ms, me);
