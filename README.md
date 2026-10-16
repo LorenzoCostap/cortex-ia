@@ -4,6 +4,16 @@ Dashboard empresarial que roda **no próprio computador** — com login por orga
 
 > Começa com uma empresa fictícia (Grupo Valmar) para testar. Na primeira importação de planilha os dados de demonstração são substituídos pelos seus.
 
+## Instalar num computador Windows (sem terminal)
+
+1. Instale o [Node.js](https://nodejs.org/pt/download) (versão **LTS**, é só avançar).
+2. No GitHub, clique em **Code › Download ZIP** e extraia numa pasta fixa, por exemplo `C:\Cortex` (evite deixar em Downloads).
+3. Dê **dois cliques em `instalar.bat`**. Ele confere o Node.js, instala tudo, pergunta se o PC fica na TV e cria os atalhos — o Cortex passa a abrir sozinho quando o Windows liga.
+
+Para remover: `desinstalar.bat` (os dados da pasta `data` não são apagados).
+
+> Cada computador instalado tem o **seu próprio banco de dados**. Para várias telas mostrarem os mesmos dados, instale em um PC só e abra nos outros o endereço “Na rede” (ex.: `http://192.168.0.10:3210/tv`).
+
 ## Requisitos
 
 - [Node.js](https://nodejs.org) 20 ou mais novo
