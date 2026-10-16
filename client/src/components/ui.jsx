@@ -1,3 +1,4 @@
+import { createPortal } from 'react-dom';
 import { createContext, useCallback, useContext, useEffect, useState } from 'react';
 
 const ICONS = {
@@ -130,13 +131,15 @@ export function Modal({ title, children, onClose }) {
     window.addEventListener('keydown', k);
     return () => window.removeEventListener('keydown', k);
   }, [onClose]);
-  return (
+  // Portal: a janela vai direto para o <body>, para nunca ficar atrás de outro conteúdo (ex.: aberta pelo menu lateral)
+  return createPortal(
     <div className="modal-back" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
       <div className="modal" role="dialog" aria-modal="true" aria-label={title}>
         <div className="card-head"><h2 className="card-title">{title}</h2><button className="btn icon sm ghost" aria-label="Fechar" onClick={onClose}><Icon name="x" size={16} /></button></div>
         {children}
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }
 

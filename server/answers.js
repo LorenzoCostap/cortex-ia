@@ -130,11 +130,15 @@ export function answerIntent(org, key) {
     case 'semanal': {
       const w = M.weeklyReport(org);
       const d = w.deltas;
+      // Variação percentual de lucro só faz sentido quando a base é positiva
+      const profitTxt = w.previous.profit > 0 ? pct(d.profit) : `antes ${brl(w.previous.profit)}`;
+      const note = w.stale ? `\n\nObs.: os dados importados vão até ${brDate(w.dataUntil)}, por isso o relatório usa a última semana completa com vendas.` : '';
+      if (!w.summary.revenue) return { severity: 'info', tools: ['relatorio_semanal'], answer: `Não há vendas registradas na ${w.label.toLowerCase()}.${note}`, short: `Sem vendas registradas na ${w.label.toLowerCase()}.`, rows: [] };
       return {
         severity: d.revenue < 0 ? 'media' : 'pos', tools: ['relatorio_semanal'],
-        answer: `**Relatório executivo — ${w.label}**\n- Faturamento: ${brl(w.summary.revenue)} (${pct(d.revenue)} vs semana anterior)\n- Lucro: ${brl(w.summary.profit)} (${pct(d.profit)})\n- Margem líquida: ${w.summary.netMargin.toLocaleString('pt-BR', { maximumFractionDigits: 1 })}%\n- Pedidos: ${w.summary.orders}\n\n**Destaques:** ${w.highlights.customersUp.slice(0, 2).map((x) => x.name).join(', ') || '—'} aumentaram as compras.\n**Atenção:** ${w.attention.slice(0, 2).map((x) => x.title.toLowerCase()).join('; ') || 'nada crítico'}.`,
-        short: `${w.label}: faturamento ${pct(d.revenue)} e lucro ${pct(d.profit)} em relação à semana anterior.`,
-        rows: [{ label: 'Faturamento da semana', value: pct(d.revenue), tone: tone(d.revenue) }, { label: 'Lucro da semana', value: pct(d.profit), tone: tone(d.profit) }, { label: 'Margem', value: `${w.summary.netMargin.toLocaleString('pt-BR', { maximumFractionDigits: 1 })}%`, tone: 'neutral' }]
+        answer: `**Relatório executivo — ${w.label}**\n- Faturamento: ${brl(w.summary.revenue)} (${pct(d.revenue)} vs semana anterior)\n- Lucro: ${brl(w.summary.profit)} (${profitTxt})\n- Margem líquida: ${w.summary.netMargin.toLocaleString('pt-BR', { maximumFractionDigits: 1 })}%\n- Pedidos: ${w.summary.orders}\n\n**Destaques:** ${w.highlights.customersUp.slice(0, 2).map((x) => x.name).join(', ') || '—'} aumentaram as compras.\n**Atenção:** ${w.attention.slice(0, 2).map((x) => x.title.toLowerCase()).join('; ') || 'nada crítico'}.${note}`,
+        short: `${w.label}: faturamento ${pct(d.revenue)} e lucro ${profitTxt} em relação à semana anterior.`,
+        rows: [{ label: 'Faturamento da semana', value: pct(d.revenue), tone: tone(d.revenue) }, { label: 'Lucro da semana', value: brlK(w.summary.profit), tone: w.summary.profit >= 0 ? 'pos' : 'neg' }, { label: 'Margem', value: `${w.summary.netMargin.toLocaleString('pt-BR', { maximumFractionDigits: 1 })}%`, tone: 'neutral' }]
       };
     }
     case 'atencao': {

@@ -66,6 +66,9 @@ export default function Team() {
       </PageHead>
       {q.error && <ErrorBox error={q.error} onRetry={q.reload} />}
       {!t && !q.error && <KpiSkeleton n={4} />}
+      {t && !t.closed && !t.team.realized && t.dataUntil && (
+        <div className="alert warn"><Icon name="info" color="var(--amber)" /><span>Ainda não há vendas de {t.label.split(' ')[0].toLowerCase()} no sistema — os últimos dados importados vão até {t.dataUntil.split('-').reverse().join('/')}. Importe as vendas mais recentes ou escolha um mês anterior.</span></div>
+      )}
       {t && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 24, opacity: q.loading ? 0.6 : 1, transition: 'opacity .2s' }}>
           <section className="grid-kpi" aria-label="Meta da equipe">

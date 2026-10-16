@@ -47,7 +47,7 @@ export function teamView(org, month) {
   const regions = reg.map((r) => ({ region: r.region, revenue: r2(r.cur), share: r2((r.cur / totalReg) * 100), customers: r.customers, change: r.prev ? r2(((r.cur - r.prev) / r.prev) * 100) : null, sellers: Object.entries(regionOf).filter(([, v]) => v === r.region).map(([k]) => k) }));
 
   return {
-    month: monthKey(ms), label: monthLabel(ms), closed: f.closed, until: to, expectedPct,
+    month: monthKey(ms), label: monthLabel(ms), closed: f.closed, until: to, expectedPct, dataUntil: M.lastSaleDate(org),
     team: { target: f.target, realized: f.realized, pct: f.achievedPct, projection: f.projection, projectionPct: f.projectionPct, requiredPerDay: f.requiredPerDay, businessDaysLeft: f.businessDaysLeft },
     sellers, regions, highlights: weekHighlights(org, today)
   };

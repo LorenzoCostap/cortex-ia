@@ -48,8 +48,12 @@ function customerAlerts(org, today) {
   return out.sort((a, b) => b.weight - a.weight).slice(0, 6);
 }
 
-function goalAlert(org, pctLimit) {
+function goalAlert(org, pctLimit, staleUntil = null) {
   const f = M.forecast(org);
+  if (staleUntil && f.target && !f.closed && !f.realized) {
+    return [{ key: `meta:${f.label}`, rule: 'meta', category: 'vendas', severity: 'info', title: `Sem vendas de ${f.label.split(' ')[0].toLowerCase()} no sistema`,
+      text: `As vendas importadas vão até ${brDate(staleUntil)}. Importe as vendas recentes para acompanhar a meta de ${kfmt(f.target)}.`, link: '/importacao', cta: 'Importar vendas' }];
+  }
   if (!f.target || f.closed || f.projectionPct === null || f.businessDaysTotal - f.businessDaysLeft < 3 || f.projectionPct >= pctLimit) return [];
   return [{ key: `meta:${f.label}`, rule: 'meta', category: 'vendas', severity: f.projectionPct < 85 ? 'alta' : 'media', title: `Meta de ${f.label.split(' ')[0].toLowerCase()} em risco`,
     text: `No ritmo atual o mês fecha em ${kfmt(f.projection)} (${f.projectionPct.toLocaleString('pt-BR', { maximumFractionDigits: 1 })}% da meta de ${kfmt(f.target)}). É preciso vender ${brl(f.requiredPerDay)} por dia útil.`,
@@ -111,14 +115,17 @@ export function evaluate(org) {
   const today = todayStr();
   const cfg = getSettings(org).alerts;
   const on = cfg.rules || {};
+  const act = M.activityDate(org, today); // clientes/produtos: a partir da última venda importada, se os dados estiverem atrasados
   const all = [];
   const safe = (fn) => { try { all.push(...fn()); } catch (e) { console.error('[alertas]', e.message); } };
-  if (on.cliente) safe(() => customerAlerts(org, today));
-  if (on.meta) safe(() => goalAlert(org, +cfg.metaPct || 95));
+  const note = act !== today ? ` (vendas importadas até ${brDate(addDays(act, -1))}.)` : '';
+  const withNote = (fn) => () => fn().map((x) => ({ ...x, text: x.text + note }));
+  if (on.cliente) safe(withNote(() => customerAlerts(org, act)));
+  if (on.meta) safe(() => goalAlert(org, +cfg.metaPct || 95, act !== today ? addDays(act, -1) : null));
   if (on.caixa) safe(() => cashAlert(org));
   if (on.conta) safe(() => billAlerts(org, today));
   if (on.orcamento !== false) safe(() => budgetAlerts(org, today));
-  if (on.produto) safe(() => productAlerts(org, today, +cfg.productDrop || 35));
+  if (on.produto) safe(withNote(() => productAlerts(org, act, +cfg.productDrop || 35)));
   return all;
 }
 

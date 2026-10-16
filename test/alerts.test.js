@@ -88,3 +88,18 @@ test('orçamento de despesas por categoria', async () => {
   A.refreshAlerts(org);
   assert.ok(A.listAlerts(org).some((a) => a.rule === 'orcamento' && a.title.startsWith(spent.category)));
 });
+
+test('dados importados atrasados não viram "todo mundo parou de comprar"', async () => {
+  const M = await import('../server/metrics.js');
+  const { addDays, todayStr } = await import('../server/dates.js');
+  const last = M.lastSaleDate(org);
+  assert.equal(M.activityDate(org), todayStr(), 'demonstração está em dia');
+  // Simula que as vendas importadas acabaram há 20 dias
+  db.prepare('UPDATE orders SET date = ? WHERE org_id = ? AND date > ?').run(addDays(todayStr(), -40), org, addDays(todayStr(), -20));
+  assert.equal(M.activityDate(org), addDays(M.lastSaleDate(org), 1));
+  const al = A.evaluate(org).filter((a) => a.rule === 'cliente');
+  assert.ok(al.length <= 2, `poucos clientes "parados" (veio ${al.length})`);
+  assert.ok(al.every((a) => a.text.includes('vendas importadas até')));
+  assert.ok(M.weeklyReport(org).stale);
+  assert.ok(last);
+});

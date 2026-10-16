@@ -130,6 +130,7 @@ function RankingScreen({ r, hide }) {
             );
           })}
           {!r.sellers.length && <p style={{ fontSize: 24, color: '#8E8E99' }}>Sem vendas com vendedor neste mês.</p>}
+          {r.sellers.length > 0 && !team.realized && r.dataUntil && <p style={{ fontSize: 20, color: '#FCD34D' }}>Ainda não há vendas de {r.label.split(' ')[0].toLowerCase()} no sistema — os últimos dados importados vão até {r.dataUntil.split('-').reverse().join('/')}.</p>}
         </div>
       </section>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 24, minHeight: 0 }}>

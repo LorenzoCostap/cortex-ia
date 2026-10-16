@@ -338,6 +338,7 @@ app.post('/api/import/commit', requirePerm('importacao'), (req, res) => {
     const r = commit(org(req), req.user.id, req.body.type, v.valid, { mode: req.body.mode === 'replace' ? 'replace' : 'append', filename: p.filename });
     drop(req.body.token);
     refreshInsights(org(req), { force: true }).catch(() => {});
+    try { refreshAlerts(org(req)); } catch { /* alertas são recalculados depois pelo agendador */ }
     res.json({ ...r, errorCount: v.errorCount });
   } catch (e) { res.status(400).json({ error: e.message }); }
 });
@@ -555,6 +556,7 @@ app.post('/api/data/reset-demo', requirePerm('importacao'), wrap(async (req, res
   db.prepare('UPDATE organizations SET is_demo = 1 WHERE id = ?').run(org(req));
   logEvent(org(req), req.user.id, 'import', 'Dados de demonstração gerados novamente', 'ok');
   refreshInsights(org(req), { force: true }).catch(() => {});
+  try { refreshAlerts(org(req)); } catch { /* idem */ }
   res.json({ ok: true });
 }));
 

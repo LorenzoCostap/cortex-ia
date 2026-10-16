@@ -23,7 +23,7 @@ function ReportView({ id, onDeleted }) {
     if (!window.confirm('Excluir este relatório?')) return;
     await api(`/reports/${id}`, { method: 'DELETE' });
     toast('Relatório excluído');
-    onDeleted();
+    onDeleted(id);
   };
   return (
     <article className="card rise" style={{ padding: 0, overflow: 'hidden', gap: 0 }} aria-labelledby="rep-title">
@@ -85,9 +85,12 @@ export default function Reports() {
   const list = useAsync(() => api('/reports'), []);
   const [form, setForm] = useState({ type: 'executivo', custom: false, from: '', to: '' });
   const [busy, setBusy] = useState(false);
-  const current = id || list.data?.reports?.[0]?.id;
+  // Relatórios excluídos nesta sessão somem da lista na hora (sem esperar o recarregamento)
+  const [deleted, setDeleted] = useState([]);
+  const reports = (list.data?.reports || []).filter((r) => !deleted.includes(String(r.id)));
+  const current = id || reports[0]?.id;
 
-  useEffect(() => { if (!id && list.data?.reports?.[0]) nav(`/relatorios/${list.data.reports[0].id}`, { replace: true }); }, [id, list.data, nav]);
+  useEffect(() => { if (!id && reports[0]) nav(`/relatorios/${reports[0].id}`, { replace: true }); }, [id, reports[0]?.id, nav]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const generate = async (e) => {
     e.preventDefault();
@@ -146,7 +149,7 @@ export default function Reports() {
 
           <section className="card tight" aria-labelledby="rc">
             <h2 id="rc" className="card-title">Relatórios recentes</h2>
-            {list.data?.reports?.length ? list.data.reports.slice(0, 12).map((r) => (
+            {reports.length ? reports.slice(0, 12).map((r) => (
               <button key={r.id} onClick={() => nav(`/relatorios/${r.id}`)} className="btn ghost" style={{ justifyContent: 'flex-start', flexDirection: 'column', alignItems: 'flex-start', gap: 3, minHeight: 0, padding: '10px 12px', whiteSpace: 'normal', textAlign: 'left', background: String(r.id) === String(current) ? 'var(--violet-soft)' : 'transparent', fontWeight: 400 }}>
                 <span style={{ fontSize: 14 }}>{r.title}</span>
                 <span className="dim" style={{ fontSize: 12 }}>{MODE[r.mode]} · {relTime(r.created_at)}</span>
@@ -155,7 +158,7 @@ export default function Reports() {
           </section>
         </div>
         <div style={{ flex: '2 1 520px', minWidth: 0 }}>
-          {list.error ? <ErrorBox error={list.error} onRetry={list.reload} /> : current ? <ReportView id={current} onDeleted={() => { list.reload(); nav('/relatorios'); }} /> : list.data && <Empty icon="file" title="Nenhum relatório gerado" text="Escolha um tipo ao lado e clique em Gerar relatório." />}
+          {list.error ? <ErrorBox error={list.error} onRetry={list.reload} /> : current ? <ReportView id={current} onDeleted={(gone) => { setDeleted((d) => [...d, String(gone)]); const next = reports.find((r) => String(r.id) !== String(gone)); list.reload(); nav(next ? `/relatorios/${next.id}` : '/relatorios', { replace: true }); }} /> : list.data && <Empty icon="file" title="Nenhum relatório gerado" text="Escolha um tipo ao lado e clique em Gerar relatório." />}
         </div>
       </div>
     </>

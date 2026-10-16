@@ -285,13 +285,31 @@ export function goalProgress(org, month = todayStr()) {
   return { month: monthKey(month), label: monthLabel(month), target, revenue: s.revenue, achieved: target ? r2((s.revenue / target) * 100) : null, expectedByNow: target ? r2(target * (elapsed / total)) : null, onPace: target ? s.revenue >= target * (elapsed / total) * 0.97 : null, elapsedDays: elapsed, totalDays: total };
 }
 
+/** Data da última venda registrada (dados importados podem estar atrasados em relação a hoje). */
+export function lastSaleDate(org) {
+  return db.prepare('SELECT MAX(date) d FROM orders WHERE org_id = ?').get(org).d;
+}
+
+/**
+ * Data de referência para regras de "atividade recente" (cliente parado, produto em queda).
+ * Se as vendas importadas acabam há mais de 3 dias, conta a partir do dia seguinte à última venda —
+ * senão um atraso na importação pareceria que todos os clientes pararam de comprar.
+ */
+export function activityDate(org, today = todayStr()) {
+  const last = lastSaleDate(org);
+  return last && last < addDays(today, -3) ? addDays(last, 1) : today;
+}
+
 export function weeklyReport(org, refDate = todayStr()) {
+  // Se os dados importados acabam antes da última semana completa, usa a última semana que tem dados.
+  const dataUntil = lastSaleDate(org);
+  if (dataUntil && dataUntil < weekRange(addDays(weekRange(refDate).start, -1)).start) refDate = addDays(dataUntil, 1);
   const thisWeek = weekRange(refDate);
   const last = weekRange(addDays(thisWeek.start, -1)); // última semana completa
   const before = weekRange(addDays(last.start, -1));
   const cmp = comparePeriods(org, { from: last.start, to: last.end }, { from: before.start, to: before.end });
   return {
-    week: isoWeek(last.start), from: last.start, to: last.end, label: `Semana ${isoWeek(last.start)} · ${brDate(last.start).slice(0, 5)} a ${brDate(last.end).slice(0, 5)}`,
+    week: isoWeek(last.start), from: last.start, to: last.end, dataUntil, stale: !!dataUntil && dataUntil < addDays(todayStr(), -7), label: `Semana ${isoWeek(last.start)} · ${brDate(last.start).slice(0, 5)} a ${brDate(last.end).slice(0, 5)}`,
     summary: cmp.current, previous: cmp.previous, deltas: cmp.deltas,
     highlights: { customersUp: cmp.biggestCustomerGains, productsUp: cmp.biggestProductGains },
     concerns: { customersDown: cmp.biggestCustomerDrops.slice(0, 3), productsDown: cmp.biggestProductDrops.slice(0, 3) },
@@ -301,14 +319,15 @@ export function weeklyReport(org, refDate = todayStr()) {
 
 export function attentionIndicators(org) {
   const today = todayStr();
+  const act = activityDate(org, today);
   const items = [];
   const overdue = bills(org, 'pagar', { days: 0 }).filter((b) => b.status === 'vencida');
   if (overdue.length) items.push({ severity: 'alta', title: 'Contas a pagar vencidas', detail: `${overdue.length} conta(s) vencida(s)`, value: r2(overdue.reduce((s, b) => s + b.amount, 0)), items: overdue });
   const rec = receivablesSummary(org);
   if (rec.overdue) items.push({ severity: 'media', title: 'Recebimentos atrasados', detail: `${rec.overdue} título(s) de clientes vencidos`, value: rec.overdueAmount });
-  const top = db.prepare(`SELECT c.name, MAX(o.date) last, SUM(o.total) v FROM orders o JOIN customers c ON c.id = o.customer_id WHERE o.org_id = ? AND o.date >= ? GROUP BY c.id ORDER BY v DESC LIMIT 20`).all(org, addMonths(today, -3));
+  const top = db.prepare(`SELECT c.name, MAX(o.date) last, SUM(o.total) v FROM orders o JOIN customers c ON c.id = o.customer_id WHERE o.org_id = ? AND o.date >= ? GROUP BY c.id ORDER BY v DESC LIMIT 20`).all(org, addMonths(act, -3));
   for (const c of top) {
-    const d = daysBetween(c.last, today);
+    const d = daysBetween(c.last, act);
     if (d >= 14) items.push({ severity: 'alta', title: `${c.name} sem pedidos`, detail: `Último pedido há ${d} dias — é um dos 20 maiores clientes`, value: d, unit: 'dias' });
   }
   const recent = previousPeriod(addDays(today, -20), today);

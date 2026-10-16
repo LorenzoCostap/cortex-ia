@@ -1,6 +1,6 @@
 // Insights automáticos, relatórios, agendamentos, pasta monitorada, backup e o canal ao vivo da TV.
 import fs from 'node:fs';
-import { maybeRefreshAlerts } from './alerts.js';
+import { maybeRefreshAlerts, refreshAlerts } from './alerts.js';
 import { runDailyEmail } from './mailer.js';
 import path from 'node:path';
 import { readFile, detectType, autoMap, validate, commit } from './importer.js';
@@ -197,7 +197,7 @@ export async function scanWatchFolder(orgId, { force = false } = {}) {
       results.push({ file: f, error: e.message });
     }
   }
-  if (results.some((r) => r.inserted)) { refreshInsights(orgId, { force: true }).catch(() => {}); broadcast(orgId, 'insights', {}); }
+  if (results.some((r) => r.inserted)) { refreshInsights(orgId, { force: true }).catch(() => {}); try { refreshAlerts(orgId); } catch { /* agendador tenta de novo */ } broadcast(orgId, 'insights', {}); }
   return { results };
 }
 
