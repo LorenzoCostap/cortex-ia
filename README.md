@@ -2,6 +2,8 @@
 
 Dashboard empresarial que roda **no próprio computador** — com login por organização, indicadores financeiros e de vendas, modo TV para o escritório e um assistente de IA local (Ollama) que responde perguntas sobre os números da empresa.
 
+> **Vai instalar numa empresa?** Siga o [guia de instalação passo a passo](docs/GUIA-INSTALACAO.md) — sem terminal, com primeiro acesso, importação dos dados, TVs e IA.
+
 > Começa com uma empresa fictícia (Grupo Valmar) para testar. Na primeira importação de planilha os dados de demonstração são substituídos pelos seus.
 
 ## Instalar num computador Windows (sem terminal)
