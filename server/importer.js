@@ -93,9 +93,31 @@ function cellValue(v) {
   return v;
 }
 
+function splitRows(rows) {
+  const headers = rows[0].map((h, i) => String(h || '').trim() || `Coluna ${i + 1}`);
+  const data = rows.slice(1).map((r) => headers.map((_, i) => (r[i] === undefined ? '' : r[i])));
+  return { headers, rows: data };
+}
+
+// Abas cujo tipo foi detectado com todas as colunas obrigatórias (uma por tipo)
+function recognizedSheets(list) {
+  const out = [], used = new Set();
+  for (const { name, rows } of list) {
+    if (rows.length < 2) continue;
+    const { headers, rows: data } = splitRows(rows);
+    const type = detectType(headers);
+    const mapping = autoMap(type, headers);
+    if (used.has(type) || validate(type, [], mapping).missing.length) continue;
+    used.add(type);
+    out.push({ name, type, headers, rows: data, mapping });
+  }
+  return out;
+}
+
 export async function readFile(buffer, filename) {
   const ext = String(filename).toLowerCase().split('.').pop();
   let rows;
+  const extra = {};
   if (ext === 'csv' || ext === 'txt') {
     let text = buffer.toString('utf8');
     if (text.includes('�')) text = buffer.toString('latin1'); // planilhas antigas do Excel em ANSI
@@ -103,23 +125,28 @@ export async function readFile(buffer, filename) {
   } else if (ext === 'xlsx' || ext === 'xlsm') {
     const wb = new ExcelJS.Workbook();
     await wb.xlsx.load(buffer);
+    const sheetRows = (ws) => {
+      const out = [];
+      ws.eachRow({ includeEmpty: false }, (r) => {
+        const vals = [];
+        for (let i = 1; i <= ws.columnCount; i++) vals.push(cellValue(r.getCell(i).value));
+        if (vals.some((x) => String(x).trim() !== '')) out.push(vals);
+      });
+      return out;
+    };
     const ws = wb.worksheets.find((w) => w.actualRowCount > 1) || wb.worksheets[0];
     if (!ws) throw new Error('A planilha está vazia.');
-    rows = [];
-    ws.eachRow({ includeEmpty: false }, (r) => {
-      const vals = [];
-      for (let i = 1; i <= ws.columnCount; i++) vals.push(cellValue(r.getCell(i).value));
-      if (vals.some((x) => String(x).trim() !== '')) rows.push(vals);
-    });
+    rows = sheetRows(ws);
+    // Arquivo com várias abas (vendas, despesas, contas, metas): guarda as que foram reconhecidas
+    const sheets = recognizedSheets(wb.worksheets.filter((w) => w.actualRowCount > 1).map((w) => ({ name: w.name, rows: w === ws ? rows : sheetRows(w) })));
+    if (sheets.length > 1) extra.sheets = sheets;
   } else if (ext === 'xls') {
     throw new Error('Arquivos .xls (Excel 97-2003) não são suportados. Abra no Excel e salve como .xlsx ou .csv.');
   } else {
     throw new Error('Formato não suportado. Use .xlsx ou .csv.');
   }
   if (rows.length < 2) throw new Error('A planilha precisa ter uma linha de cabeçalho e pelo menos uma linha de dados.');
-  const headers = rows[0].map((h, i) => String(h || '').trim() || `Coluna ${i + 1}`);
-  const data = rows.slice(1).map((r) => headers.map((_, i) => (r[i] === undefined ? '' : r[i])));
-  return { headers, rows: data };
+  return { ...splitRows(rows), ...extra };
 }
 
 /* ---------------- Detecção e mapeamento ---------------- */
@@ -326,6 +353,19 @@ export function commit(orgId, userId, type, valid, { mode = 'append', filename =
 
   logEvent(orgId, userId, 'import', `${filename || TYPES[type].label}: ${result.inserted} linha(s) importada(s)${result.skipped ? `, ${result.skipped} repetida(s) ignorada(s)` : ''}`, 'ok', result);
   return result;
+}
+
+// Importa todas as abas reconhecidas de um arquivo, na ordem vendas → despesas → contas → metas
+export function importAll(orgId, userId, sheets, { filename = '' } = {}) {
+  const order = Object.keys(TYPES);
+  const results = [];
+  for (const sh of [...sheets].sort((a, b) => order.indexOf(a.type) - order.indexOf(b.type))) {
+    const v = validate(sh.type, sh.rows, sh.mapping);
+    if (v.missing.length || !v.valid.length) { results.push({ sheet: sh.name, type: sh.type, inserted: 0, errorCount: v.errorCount || 0, error: 'Nenhuma linha válida' }); continue; }
+    const r = commit(orgId, userId, sh.type, v.valid, { mode: 'append', filename: `${filename} · aba ${sh.name}` });
+    results.push({ sheet: sh.name, ...r, errorCount: v.errorCount });
+  }
+  return { results, replacedDemo: results.some((r) => r.replacedDemo) };
 }
 
 /* ---------------- Sessões de importação (entre prévia e confirmação) ---------------- */

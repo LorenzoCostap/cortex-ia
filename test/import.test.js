@@ -52,6 +52,20 @@ test('XLSX é lido com datas e números reais', async () => {
   assert.equal(v.valid[0].valor, 34000.5);
 });
 
+test('arquivo com várias abas importa vendas, despesas, contas e metas de uma vez', async () => {
+  const p = await I.readFile(fs.readFileSync(new URL('../exemplos/cortex-exemplo-dados.xlsx', import.meta.url)), 'tudo.xlsx');
+  assert.deepEqual(p.sheets.map((s) => s.type).sort(), ['contas', 'despesas', 'metas', 'vendas']);
+  const orgId = createOrganization({ slug: 'abas-teste', name: 'Abas', adminName: 'A', adminEmail: 'abas@a.com', password: 'senha1234' });
+  const r = I.importAll(orgId, null, p.sheets, { filename: 'tudo.xlsx' });
+  assert.equal(r.results.length, 4);
+  assert.ok(r.results.every((x) => x.inserted > 0));
+  assert.ok(db.prepare('SELECT COUNT(*) n FROM expenses WHERE org_id = ?').get(orgId).n > 0);
+  assert.ok(db.prepare('SELECT COUNT(*) n FROM bills WHERE org_id = ?').get(orgId).n > 0);
+  // limpa para não interferir nos outros testes
+  db.prepare('DELETE FROM order_items WHERE order_id IN (SELECT id FROM orders WHERE org_id = ?)').run(orgId);
+  for (const t of ['orders', 'customers', 'products', 'expenses', 'bills', 'goals', 'goal_items']) db.prepare(`DELETE FROM ${t} WHERE org_id = ?`).run(orgId);
+});
+
 test('importa vendas agrupando pedidos e ignora repetidos', () => {
   const headers = ['data', 'pedido', 'cliente', 'produto', 'quantidade', 'valor_unitario', 'vendedor'];
   const rows = [['01/10/2026', 'A1', 'Cli 1', 'P1', '2', '10,00', 'Ana'], ['01/10/2026', 'A1', 'Cli 1', 'P2', '1', '5,00', 'Ana'], ['02/10/2026', 'A2', 'Cli 2', 'P1', 'x', '10', 'Bia']];

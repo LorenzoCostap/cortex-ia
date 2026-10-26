@@ -84,6 +84,16 @@ function Wizard({ isDemo, onDone }) {
     setBusy(false);
   };
 
+  const runImportAll = async () => {
+    setBusy(true); setError('');
+    try {
+      const r = await api('/import/commit-all', { method: 'POST', body: { token: preview.token } });
+      setResult({ ...r, all: true }); setStep(3); onDone?.();
+      toast('Importação concluída', { text: `${num(r.results.reduce((n, x) => n + (x.inserted || 0), 0))} linha(s) importada(s) de ${r.results.length} aba(s).` });
+    } catch (e) { setError(e.message); }
+    setBusy(false);
+  };
+
   const fields = types.data?.[type]?.fields || [];
   const sampleOf = (idx) => (idx === undefined || idx === '' ? '' : preview?.sample?.map((r) => r[idx]).filter((x) => x !== '').slice(0, 2).join(' · '));
 
@@ -105,6 +115,17 @@ function Wizard({ isDemo, onDone }) {
 
       {step === 1 && preview && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+          {preview.sheets?.length > 1 && (
+            <div className="alert info" style={{ alignItems: 'center', flexWrap: 'wrap' }}>
+              <Icon name="info" color="var(--violet-text)" />
+              <span style={{ flex: 1, minWidth: 240, lineHeight: 1.6 }}>
+                Este arquivo tem <strong>{preview.sheets.length} abas</strong> com dados: {preview.sheets.map((sh) => `${sh.label} (${num(sh.rowCount)})`).join(' · ')}.
+                {' '}Importe tudo de uma vez ou continue abaixo para importar só a primeira aba.
+                {isDemo && <><br /><strong>Os dados de demonstração serão apagados.</strong></>}
+              </span>
+              <button className="btn primary" onClick={runImportAll} disabled={busy}>{busy ? <><Spinner color="#fff" />Importando…</> : 'Importar todas as abas'}</button>
+            </div>
+          )}
           <div className="card-head">
             <div><h2 className="card-title">Mapear colunas · {preview.filename}</h2><p className="card-sub">{num(preview.rowCount)} linhas · o Cortex sugeriu o mapeamento, confira antes de continuar.</p></div>
             <label className="field" style={{ minWidth: 240 }}>Tipo de planilha
@@ -182,11 +203,18 @@ function Wizard({ isDemo, onDone }) {
         <div className="rise" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 14, padding: '24px 0', textAlign: 'center' }}>
           <span style={{ width: 56, height: 56, borderRadius: '50%', background: 'var(--green-bg)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Icon name="check" size={26} color="var(--green)" width={2.6} /></span>
           <h2 style={{ fontSize: 18, fontWeight: 600 }}>Importação concluída</h2>
+          {result.all ? (
+            <ul className="muted" style={{ margin: 0, padding: 0, listStyle: 'none', lineHeight: 1.8 }}>
+              {result.results.map((r) => <li key={r.sheet}><strong style={{ color: 'var(--text)' }}>{TYPE_LABEL[r.type]}</strong> (aba {r.sheet}): {r.error ? r.error : `${num(r.inserted)} linha(s)${r.orders ? ` em ${num(r.orders)} pedido(s)` : ''}${r.skipped ? `, ${num(r.skipped)} repetida(s) ignorada(s)` : ''}${r.errorCount ? `, ${num(r.errorCount)} com erro` : ''}`}</li>)}
+              {result.replacedDemo && <li>Os dados de demonstração foram removidos.</li>}
+            </ul>
+          ) : (
           <p className="muted" style={{ lineHeight: 1.6 }}>
             {num(result.inserted)} linha(s) de {TYPE_LABEL[result.type].toLowerCase()} importada(s){result.orders ? ` em ${num(result.orders)} pedido(s)` : ''}.
             {result.skipped ? ` ${num(result.skipped)} repetida(s) ignorada(s).` : ''}{result.errorCount ? ` ${num(result.errorCount)} com erro ignorada(s).` : ''}
             {result.replacedDemo ? ' Os dados de demonstração foram removidos.' : ''}
           </p>
+          )}
           <div className="toolbar" style={{ justifyContent: 'center' }}>
             <button className="btn" onClick={reset}>Importar outra planilha</button>
             <Link className="btn primary" to="/">Ver dashboard</Link>

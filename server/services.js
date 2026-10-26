@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import { maybeRefreshAlerts, refreshAlerts } from './alerts.js';
 import { runDailyEmail } from './mailer.js';
 import path from 'node:path';
-import { readFile, detectType, autoMap, validate, commit } from './importer.js';
+import { readFile, detectType, autoMap, validate, commit, importAll } from './importer.js';
 import { runBackup, listBackups } from './backup.js';
 import { db, getSettings, logEvent } from './db.js';
 import * as M from './metrics.js';
@@ -184,6 +184,14 @@ export async function scanWatchFolder(orgId, { force = false } = {}) {
     if (seen.get(orgId, full, mtime)) continue;
     try {
       const parsed = await readFile(fs.readFileSync(full), f);
+      if (parsed.sheets) {
+        const all = importAll(orgId, null, parsed.sheets, { filename: `Pasta monitorada · ${f}` });
+        const inserted = all.results.reduce((n, r) => n + (r.inserted || 0), 0);
+        if (!inserted) throw new Error('Nenhuma linha válida nas abas.');
+        rec.run(orgId, full, mtime, 'ok', inserted, all.results.map((r) => `${r.sheet}: ${r.inserted}`).join(' · '));
+        results.push({ file: f, type: 'varias', inserted });
+        continue;
+      }
       const type = detectType(parsed.headers);
       const v = validate(type, parsed.rows, autoMap(type, parsed.headers));
       if (v.missing.length) throw new Error(`Colunas obrigatórias não encontradas: ${v.missing.join(', ')}`);

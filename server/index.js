@@ -15,7 +15,7 @@ import * as M from './metrics.js';
 import { ask, ollamaStatus, ollamaSpeed } from './ai.js';
 import { QUESTIONS } from './answers.js';
 import { subscribe, broadcast, tvCount, refreshInsights, getInsights, buildReport, saveReport, REPORT_TYPES, startScheduler, scanWatchFolder, watchStatus } from './services.js';
-import { TYPES, readFile, detectType, autoMap, validate, commit, stash, unstash, drop } from './importer.js';
+import { TYPES, readFile, detectType, autoMap, validate, commit, importAll, stash, unstash, drop } from './importer.js';
 import { runBackup, listBackups, restoreBackup, defaultBackupDir } from './backup.js';
 import { seedDemo, generateDemoData } from './seed.js';
 import { isIso, refMonth, monthStart, monthEnd, todayStr, addMonths } from './dates.js';
@@ -316,7 +316,7 @@ app.post('/api/import/preview', requirePerm('importacao'), wrap(async (req, res)
   try { parsed = await readFile(req.body, filename); } catch (e) { return res.status(400).json({ error: e.message }); }
   const type = detectType(parsed.headers);
   const token = stash(org(req), filename, parsed);
-  res.json({ token, filename, type, headers: parsed.headers, sample: parsed.rows.slice(0, 5), rowCount: parsed.rows.length, mapping: autoMap(type, parsed.headers), mappings: Object.fromEntries(Object.keys(TYPES).map((t) => [t, autoMap(t, parsed.headers)])) });
+  res.json({ token, filename, type, headers: parsed.headers, sample: parsed.rows.slice(0, 5), rowCount: parsed.rows.length, mapping: autoMap(type, parsed.headers), mappings: Object.fromEntries(Object.keys(TYPES).map((t) => [t, autoMap(t, parsed.headers)])), sheets: parsed.sheets?.map((sh) => ({ name: sh.name, type: sh.type, label: TYPES[sh.type].label, rowCount: sh.rows.length })) });
 }));
 
 const cleanMapping = (m) => Object.fromEntries(Object.entries(m || {}).filter(([, v]) => v !== '' && v !== null && v !== undefined).map(([k, v]) => [k, +v]));
@@ -340,6 +340,18 @@ app.post('/api/import/commit', requirePerm('importacao'), (req, res) => {
     refreshInsights(org(req), { force: true }).catch(() => {});
     try { refreshAlerts(org(req)); } catch { /* alertas são recalculados depois pelo agendador */ }
     res.json({ ...r, errorCount: v.errorCount });
+  } catch (e) { res.status(400).json({ error: e.message }); }
+});
+
+app.post('/api/import/commit-all', requirePerm('importacao'), (req, res) => {
+  try {
+    const p = unstash(org(req), req.body?.token);
+    if (!p.sheets?.length) return res.status(400).json({ error: 'Este arquivo não tem várias abas reconhecidas.' });
+    const r = importAll(org(req), req.user.id, p.sheets, { filename: p.filename });
+    drop(req.body.token);
+    refreshInsights(org(req), { force: true }).catch(() => {});
+    try { refreshAlerts(org(req)); } catch { /* alertas são recalculados depois pelo agendador */ }
+    res.json(r);
   } catch (e) { res.status(400).json({ error: e.message }); }
 });
 
