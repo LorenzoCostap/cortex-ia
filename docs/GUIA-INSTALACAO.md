@@ -51,7 +51,9 @@ Depois, deixe o sistema com a cara da empresa e sem a senha padrão:
 
 Os dados entram por planilha (.xlsx ou .csv) em **Importação e backup › Importar planilha**. Na primeira importação, os dados fictícios são apagados e substituídos pelos da empresa.
 
-Na pasta [`exemplos`](../exemplos/) do Cortex há quatro planilhas no formato certo para usar de modelo, importadas nesta ordem:
+Dá para enviar **um arquivo só com todas as abas** (vendas, despesas, contas e metas), **vários arquivos de uma vez** ou **uma pasta inteira** (botão **Selecionar uma pasta**, ou arraste a pasta). O Cortex reconhece o que é cada um e importa tudo junto.
+
+Na pasta [`exemplos`](../exemplos/) há o `cortex-exemplo-dados.xlsx`, com as quatro abas num arquivo só, e as mesmas informações separadas em quatro planilhas:
 
 | Planilha | Colunas obrigatórias | Recomendadas |
 | --- | --- | --- |
@@ -84,6 +86,12 @@ Sem IA, o Cortex já responde às perguntas frequentes (queda do faturamento, pr
 Precisa de uns 8 GB de RAM livres; sem placa de vídeo, cada resposta leva de 20 s a 1 min. Em computador mais simples, use `qwen2.5:3b` e troque o nome do modelo em **Configurações › Cortex AI**.
 
 Se a empresa não permitir IA, desligue **Usar inteligência artificial** em **Configurações › Cortex AI**: o Cortex deixa de procurar o Ollama e o Assistente vira “Perguntas rápidas”, só com respostas automáticas.
+
+## Atualizar para uma versão nova
+
+1. Baixe a versão nova (no GitHub: **Code › Download ZIP**) e extraia.
+2. Copie os arquivos por cima da pasta do Cortex (ex.: `C:\Cortex`), aceitando substituir. A pasta `data`, com os dados e backups, não é tocada.
+3. Rode o `instalar.bat` de novo: ele para o Cortex que está rodando, atualiza e inicia a versão nova.
 
 ## Dia a dia e problemas comuns
 

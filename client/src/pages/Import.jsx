@@ -19,6 +19,33 @@ function download(type) {
   const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = `modelo_${type}.csv`; a.click();
 }
 
+const ORDER = ['vendas', 'despesas', 'contas', 'metas'];
+const isSheet = (f) => /\.(xlsx|csv)$/i.test(f.name) && !f.name.startsWith('~$');
+
+// Arquivos soltos ou pastas arrastadas (lê as subpastas)
+async function filesFromDrop(dt) {
+  const entries = [...(dt.items || [])].map((i) => i.webkitGetAsEntry?.()).filter(Boolean);
+  if (!entries.some((e) => e.isDirectory)) return [...dt.files];
+  const out = [];
+  const walk = async (entry) => {
+    if (entry.isFile) out.push(await new Promise((res, rej) => entry.file(res, rej)));
+    else if (entry.isDirectory) {
+      const reader = entry.createReader();
+      let chunk;
+      do { chunk = await new Promise((res, rej) => reader.readEntries(res, rej)); for (const e of chunk) await walk(e); } while (chunk.length);
+    }
+  };
+  for (const e of entries) await walk(e);
+  return out;
+}
+
+async function previewFile(file) {
+  const res = await fetch('/api/import/preview', { method: 'POST', headers: { 'x-filename': encodeURIComponent(file.name), 'content-type': 'application/octet-stream' }, body: file });
+  const d = await res.json();
+  if (!res.ok) throw new Error(d.error || 'Não foi possível ler o arquivo.');
+  return d;
+}
+
 function Steps({ step }) {
   const steps = ['Enviar arquivo', 'Mapear colunas', 'Validar', 'Importar'];
   return (
@@ -52,18 +79,59 @@ function Wizard({ isDemo, onDone }) {
   const [result, setResult] = useState(null);
   const [drag, setDrag] = useState(false);
   const input = useRef(null);
+  const [batch, setBatch] = useState(null);
 
-  const reset = () => { setStep(0); setPreview(null); setCheck(null); setResult(null); setError(''); setMode('append'); };
+  const reset = () => { setStep(0); setPreview(null); setBatch(null); setCheck(null); setResult(null); setError(''); setMode('append'); };
 
   const upload = async (file) => {
     if (!file) return;
     setError(''); setBusy(true);
     try {
-      const res = await fetch('/api/import/preview', { method: 'POST', headers: { 'x-filename': encodeURIComponent(file.name), 'content-type': 'application/octet-stream' }, body: file });
-      const d = await res.json();
-      if (!res.ok) throw new Error(d.error || 'Não foi possível ler o arquivo.');
+      const d = await previewFile(file);
       setPreview(d); setType(d.type); setMapping(d.mapping); setStep(1);
     } catch (e) { setError(e.message); }
+    setBusy(false);
+  };
+
+  // Todas as colunas obrigatórias foram reconhecidas automaticamente?
+  const readyToImport = (d) => {
+    if (d.sheets?.length > 1) return true;
+    const req = (types.data?.[d.type]?.fields || []).filter((f) => f.required);
+    if (req.some((f) => d.mapping[f.key] === undefined)) return false;
+    return d.type !== 'vendas' || d.mapping.valor_unitario !== undefined || d.mapping.valor_total !== undefined;
+  };
+
+  // Vários arquivos ou uma pasta: lê todos e mostra o que foi reconhecido
+  const uploadMany = async (list) => {
+    const files = [...(list || [])].filter(isSheet);
+    if (!files.length) { setError('Nenhuma planilha .xlsx ou .csv encontrada.'); return; }
+    if (files.length === 1) return upload(files[0]);
+    setError(''); setBusy(true);
+    const out = [];
+    for (const file of files) {
+      try { const d = await previewFile(file); out.push({ name: file.name, ...d, ready: readyToImport(d) }); }
+      catch (e) { out.push({ name: file.name, error: e.message }); }
+    }
+    setBatch(out); setStep(1); setBusy(false);
+  };
+
+  const runBatch = async () => {
+    setBusy(true); setError('');
+    const rank = (b) => (b.sheets?.length > 1 ? -1 : ORDER.indexOf(b.type));
+    const results = [];
+    for (const b of batch.filter((x) => x.ready).sort((a, c) => rank(a) - rank(c))) {
+      try {
+        if (b.sheets?.length > 1) {
+          const r = await api('/import/commit-all', { method: 'POST', body: { token: b.token } });
+          r.results.forEach((x) => results.push({ ...x, source: `${b.name} · aba ${x.sheet}` }));
+        } else {
+          const r = await api('/import/commit', { method: 'POST', body: { token: b.token, type: b.type, mapping: b.mapping, mode: 'append' } });
+          results.push({ ...r, source: b.name });
+        }
+      } catch (e) { results.push({ type: b.type, source: b.name, error: e.message }); }
+    }
+    setResult({ all: true, results, replacedDemo: results.some((r) => r.replacedDemo) }); setStep(3); onDone?.();
+    toast('Importação concluída', { text: `${num(results.reduce((n, x) => n + (x.inserted || 0), 0))} linha(s) importada(s).` });
     setBusy(false);
   };
 
@@ -103,14 +171,48 @@ function Wizard({ isDemo, onDone }) {
       {error && <div className="alert err" role="alert"><Icon name="alert" color="var(--red)" /><span>{error}</span></div>}
 
       {step === 0 && (
-        <label onDragOver={(e) => { e.preventDefault(); setDrag(true); }} onDragLeave={() => setDrag(false)} onDrop={(e) => { e.preventDefault(); setDrag(false); upload(e.dataTransfer.files[0]); }}
+        <label onDragOver={(e) => { e.preventDefault(); setDrag(true); }} onDragLeave={() => setDrag(false)} onDrop={(e) => { e.preventDefault(); setDrag(false); const dt = e.dataTransfer; filesFromDrop(dt).then(uploadMany).catch(() => uploadMany(dt.files)); }}
           style={{ position: 'relative', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 14, padding: '48px 24px', borderRadius: 14, border: `1.5px dashed ${drag ? 'var(--violet)' : 'var(--line-2)'}`, background: drag ? 'var(--violet-soft)' : 'var(--side)', textAlign: 'center', cursor: 'pointer', transition: 'background .2s, border-color .2s' }}>
           <span style={{ width: 52, height: 52, borderRadius: 14, background: 'var(--violet-soft)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>{busy ? <Spinner size={24} /> : <Icon name="upload" size={24} color="var(--violet-text)" />}</span>
-          <span style={{ fontSize: 16, fontWeight: 500 }}>{busy ? 'Lendo a planilha…' : 'Arraste uma planilha aqui'}</span>
-          <span className="dim" style={{ fontSize: 13 }}>.xlsx ou .csv · vendas, despesas, contas ou metas · até 60 MB</span>
-          <span className="btn primary" style={{ pointerEvents: 'none' }}>Selecionar arquivo</span>
-          <input ref={input} type="file" accept=".xlsx,.csv" disabled={busy} onChange={(e) => { upload(e.target.files[0]); e.target.value = ''; }} style={{ position: 'absolute', inset: 0, opacity: 0, cursor: 'pointer' }} aria-label="Selecionar planilha" />
+          <span style={{ fontSize: 16, fontWeight: 500 }}>{busy ? 'Lendo as planilhas…' : 'Arraste as planilhas ou uma pasta aqui'}</span>
+          <span className="dim" style={{ fontSize: 13 }}>.xlsx ou .csv · um arquivo com todas as abas, vários arquivos ou uma pasta inteira</span>
+          <span className="btn primary" style={{ pointerEvents: 'none' }}>Selecionar arquivos</span>
+          <input ref={input} type="file" accept=".xlsx,.csv" multiple disabled={busy} onChange={(e) => { uploadMany(e.target.files); e.target.value = ''; }} style={{ position: 'absolute', inset: 0, opacity: 0, cursor: 'pointer' }} aria-label="Selecionar planilha" />
         </label>
+      )}
+      {step === 0 && (
+        <div style={{ display: 'flex', justifyContent: 'center', marginTop: -8 }}>
+          <label className="btn" style={{ position: 'relative', cursor: 'pointer' }}>
+            <Icon name="folder" />Selecionar uma pasta
+            <input type="file" multiple disabled={busy} {...{ webkitdirectory: '', directory: '' }} onChange={(e) => { uploadMany(e.target.files); e.target.value = ''; }} style={{ position: 'absolute', inset: 0, opacity: 0, cursor: 'pointer' }} aria-label="Selecionar pasta com planilhas" />
+          </label>
+        </div>
+      )}
+
+      {step === 1 && batch && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+          <div><h2 className="card-title">{batch.length} arquivos selecionados</h2><p className="card-sub">O Cortex reconheceu o conteúdo de cada um. Confira e importe tudo de uma vez.</p></div>
+          <div className="table-wrap">
+            <table className="table" style={{ minWidth: 560 }}>
+              <thead><tr><th>Arquivo</th><th>Conteúdo</th><th className="num">Linhas</th><th>Situação</th></tr></thead>
+              <tbody>
+                {batch.map((b) => (
+                  <tr key={b.name}>
+                    <td>{b.name}</td>
+                    <td className="muted">{b.error ? '—' : b.sheets?.length > 1 ? b.sheets.map((x) => x.label).join(', ') : TYPE_LABEL[b.type]}</td>
+                    <td className="num">{b.error ? '—' : num(b.sheets?.length > 1 ? b.sheets.reduce((n, x) => n + x.rowCount, 0) : b.rowCount)}</td>
+                    <td style={{ color: b.ready ? 'var(--green)' : 'var(--red-text)', fontSize: 13 }}>{b.error || (b.ready ? 'Pronto' : 'Colunas não reconhecidas — importe este arquivo sozinho para ajustar')}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          {isDemo && <div className="alert warn"><Icon name="info" color="var(--amber)" /><span>Esta é a primeira importação: <strong>todos os dados de demonstração serão apagados</strong>. Usuários e configurações continuam.</span></div>}
+          <div className="toolbar" style={{ justifyContent: 'flex-end' }}>
+            <button className="btn" onClick={reset}>Voltar</button>
+            <button className="btn primary" onClick={runBatch} disabled={busy || !batch.some((b) => b.ready)}>{busy ? <><Spinner color="#fff" />Importando…</> : `Importar ${batch.filter((b) => b.ready).length} arquivo(s)`}</button>
+          </div>
+        </div>
       )}
 
       {step === 1 && preview && (
@@ -205,7 +307,7 @@ function Wizard({ isDemo, onDone }) {
           <h2 style={{ fontSize: 18, fontWeight: 600 }}>Importação concluída</h2>
           {result.all ? (
             <ul className="muted" style={{ margin: 0, padding: 0, listStyle: 'none', lineHeight: 1.8 }}>
-              {result.results.map((r) => <li key={r.sheet}><strong style={{ color: 'var(--text)' }}>{TYPE_LABEL[r.type]}</strong> (aba {r.sheet}): {r.error ? r.error : `${num(r.inserted)} linha(s)${r.orders ? ` em ${num(r.orders)} pedido(s)` : ''}${r.skipped ? `, ${num(r.skipped)} repetida(s) ignorada(s)` : ''}${r.errorCount ? `, ${num(r.errorCount)} com erro` : ''}`}</li>)}
+              {result.results.map((r, i) => <li key={i}><strong style={{ color: 'var(--text)' }}>{TYPE_LABEL[r.type] || 'Arquivo'}</strong> ({r.source || `aba ${r.sheet}`}): {r.error ? r.error : `${num(r.inserted)} linha(s)${r.orders ? ` em ${num(r.orders)} pedido(s)` : ''}${r.skipped ? `, ${num(r.skipped)} repetida(s) ignorada(s)` : ''}${r.errorCount ? `, ${num(r.errorCount)} com erro` : ''}`}</li>)}
               {result.replacedDemo && <li>Os dados de demonstração foram removidos.</li>}
             </ul>
           ) : (

@@ -59,6 +59,9 @@ if errorlevel 1 (
 )
 for /f "delims=" %%v in ('node -v') do echo  [ok] Node.js %%v encontrado.
 
+rem --- Se o Cortex ja estiver rodando, para (para carregar a versao nova e liberar os arquivos) ---
+powershell -NoProfile -Command "Get-NetTCPConnection -LocalPort 3210 -State Listen -ErrorAction SilentlyContinue | ForEach-Object { Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue }; Get-CimInstance Win32_Process -Filter \"Name='node.exe'\" | Where-Object { $_.CommandLine -like '*%~dp0*' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }" >nul 2>nul
+
 rem --- Este PC fica na TV? ---
 echo.
 choice /c SN /m "  Este computador fica ligado numa TV (abrir o modo TV em tela cheia ao ligar)"
@@ -113,6 +116,8 @@ echo   - Abre sozinho quando o Windows liga.
 echo   - Atalhos na Area de trabalho: "Cortex IA" e "Cortex IA - Modo TV".
 echo   - Primeiro acesso: organizacao grupo-valmar,
 echo     marina@grupovalmar.com.br, senha cortex2026 (dados de demonstracao).
+echo   - Para atualizar: copie a versao nova por cima desta pasta e rode
+echo     instalar.bat de novo (os dados da pasta "data" continuam).
 echo   - Para desinstalar: desinstalar.bat nesta pasta.
 echo.
 pause
