@@ -316,7 +316,8 @@ app.post('/api/import/preview', requirePerm('importacao'), wrap(async (req, res)
   try { parsed = await readFile(req.body, filename); } catch (e) { return res.status(400).json({ error: e.message }); }
   const type = detectType(parsed.headers);
   const token = stash(org(req), filename, parsed);
-  res.json({ token, filename, type, headers: parsed.headers, sample: parsed.rows.slice(0, 5), rowCount: parsed.rows.length, mapping: autoMap(type, parsed.headers), mappings: Object.fromEntries(Object.keys(TYPES).map((t) => [t, autoMap(t, parsed.headers)])), sheets: parsed.sheets?.map((sh) => ({ name: sh.name, type: sh.type, label: TYPES[sh.type].label, rowCount: sh.rows.length })) });
+  res.json({ token, filename, type, headers: parsed.headers, sample: parsed.rows.slice(0, 5), rowCount: parsed.rows.length, mapping: autoMap(type, parsed.headers), mappings: Object.fromEntries(Object.keys(TYPES).map((t) => [t, autoMap(t, parsed.headers)])), sheets: parsed.sheets?.map((sh) => ({ name: sh.name, type: sh.type, label: TYPES[sh.type].label, rowCount: sh.rows.length })),
+    info: [parsed.skippedTop ? `As ${parsed.skippedTop} primeira(s) linha(s) eram título do relatório e foram ignoradas; as colunas começam depois delas.` : null, parsed.reshaped ? 'As metas estavam com um mês por coluna e foram convertidas em uma linha por mês.' : null].filter(Boolean) });
 }));
 
 const cleanMapping = (m) => Object.fromEntries(Object.entries(m || {}).filter(([, v]) => v !== '' && v !== null && v !== undefined).map(([k, v]) => [k, +v]));
@@ -339,7 +340,7 @@ app.post('/api/import/commit', requirePerm('importacao'), (req, res) => {
     drop(req.body.token);
     refreshInsights(org(req), { force: true }).catch(() => {});
     try { refreshAlerts(org(req)); } catch { /* alertas são recalculados depois pelo agendador */ }
-    res.json({ ...r, errorCount: v.errorCount });
+    res.json({ ...r, errorCount: v.errorCount, notes: v.summary.notes });
   } catch (e) { res.status(400).json({ error: e.message }); }
 });
 

@@ -57,12 +57,12 @@ Na pasta [`exemplos`](../exemplos/) há o `cortex-exemplo-dados.xlsx`, com as qu
 
 | Planilha | Colunas obrigatórias | Recomendadas |
 | --- | --- | --- |
-| 1. Vendas (uma linha por item vendido) | Data, Cliente, Produto, Quantidade, Valor | **Custo unitário**, Pedido, Categoria, Vendedor, Região |
-| 2. Despesas | Data, Categoria, Valor | Descrição |
+| 1. Vendas (uma linha por item vendido) | Data, Valor | Cliente, Produto, Quantidade, **Custo unitário**, Pedido, Categoria, Vendedor, Região |
+| 2. Despesas | Data, Valor | Categoria, Descrição |
 | 3. Contas a pagar e receber | Tipo (pagar/receber), Parceiro, Vencimento, Valor | Pago em |
-| 4. Metas | Mês, Meta | Vendedor ou Categoria |
+| 4. Metas | Meta | Mês, Vendedor ou Categoria (também aceita um mês por coluna: Jan, Fev, Mar…) |
 
-Os nomes das colunas não precisam ser iguais: o Cortex reconhece variações (“Qtde”, “Vl Total”, “Razão social”) e mostra o mapeamento e as linhas com erro antes de importar. Sem o **custo unitário**, o custo da mercadoria é estimado em 70% do preço e o lucro fica aproximado, então vale incluir essa coluna.
+O que faltar é completado e avisado antes de importar (sem cliente → “Cliente não informado”, sem quantidade → 1, meta sem mês → mês atual). Títulos e linhas de total do relatório são ignorados. Se o Cortex não reconhecer um arquivo, use **Ajustar colunas** ao lado dele. Os nomes das colunas não precisam ser iguais: o Cortex reconhece variações (“Qtde”, “Vl Total”, “Razão social”) e mostra o mapeamento e as linhas com erro antes de importar. Sem o **custo unitário**, o custo da mercadoria é estimado em 70% do preço e o lucro fica aproximado, então vale incluir essa coluna.
 
 Para não importar à mão toda vez, aponte em **Importação automática** a pasta onde o sistema da empresa salva as exportações; o Cortex importa sozinho os arquivos novos, sem duplicar pedidos.
 

@@ -65,6 +65,34 @@ test('XLSX com célula "fantasma" na última coluna é lido rápido e só até o
   assert.ok(Date.now() - t < 10000);
 });
 
+test('relatório com título antes do cabeçalho: acha a linha das colunas', async () => {
+  const csv = 'Relatório de faturamento\nEmpresa X;;;\n\nEmissão;Razão social;Qtde;Vl Total\n05/09/2026;Mercado A;2;100,00\n06/09/2026;Mercado B;1;50,00\n';
+  const p = await I.readFile(Buffer.from(csv), 'fat.csv');
+  assert.deepEqual(p.headers, ['Emissão', 'Razão social', 'Qtde', 'Vl Total']);
+  assert.equal(p.rows.length, 2);
+  assert.equal(I.detectType(p.headers), 'vendas');
+});
+
+test('vendas só com data, vendedor e valor: completa cliente, produto e quantidade', () => {
+  const headers = ['Data', 'Vendedor', 'Valor'];
+  const v = I.validate('vendas', [['01/09/2026', 'Ana', '1.000,00']], I.autoMap('vendas', headers));
+  assert.equal(v.missing.length, 0);
+  assert.equal(v.valid[0].cliente, 'Cliente não informado');
+  assert.equal(v.valid[0].quantidade, 1);
+  assert.ok(v.summary.notes.length >= 2);
+});
+
+test('metas com um mês por coluna viram uma linha por mês', async () => {
+  const csv = 'Vendedor;Jan/26;Fev/26;Mar/26\nAna;100000;110000;120000\nTotal;300000;320000;340000\n';
+  const p = await I.readFile(Buffer.from(csv), 'metas.csv');
+  assert.deepEqual(p.headers, ['Mês', 'Meta', 'Vendedor']);
+  assert.equal(I.detectType(p.headers), 'metas');
+  const v = I.validate('metas', p.rows, I.autoMap('metas', p.headers));
+  assert.equal(v.valid.length, 6);
+  assert.deepEqual(v.valid[0], { mes: '2026-01', meta: 100000, vendedor: 'Ana' });
+  assert.equal(v.valid.find((x) => x.meta === 300000).vendedor, null);
+});
+
 test('arquivo com várias abas importa vendas, despesas, contas e metas de uma vez', async () => {
   const p = await I.readFile(fs.readFileSync(new URL('../exemplos/cortex-exemplo-dados.xlsx', import.meta.url)), 'tudo.xlsx');
   assert.deepEqual(p.sheets.map((s) => s.type).sort(), ['contas', 'despesas', 'metas', 'vendas']);

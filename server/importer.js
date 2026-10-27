@@ -11,10 +11,10 @@ export const TYPES = {
     fields: [
       { key: 'data', label: 'Data da venda', required: true, kind: 'date', aliases: ['data', 'data venda', 'data da venda', 'data pedido', 'dt', 'emissao', 'data emissao', 'dt emissao'] },
       { key: 'pedido', label: 'Nº do pedido / nota', kind: 'text', aliases: ['pedido', 'nf', 'nota', 'numero', 'num pedido', 'n pedido', 'documento', 'nota fiscal'] },
-      { key: 'cliente', label: 'Cliente', required: true, kind: 'text', aliases: ['cliente', 'razao social', 'nome cliente', 'cod cliente', 'nome'] },
-      { key: 'produto', label: 'Produto', required: true, kind: 'text', aliases: ['produto', 'descricao', 'item', 'descricao produto', 'nome produto'] },
+      { key: 'cliente', label: 'Cliente', kind: 'text', aliases: ['cliente', 'razao social', 'nome cliente', 'cod cliente', 'nome'] },
+      { key: 'produto', label: 'Produto', kind: 'text', aliases: ['produto', 'descricao', 'item', 'descricao produto', 'nome produto'] },
       { key: 'categoria', label: 'Categoria', kind: 'text', aliases: ['categoria', 'grupo', 'familia', 'linha', 'departamento'] },
-      { key: 'quantidade', label: 'Quantidade', required: true, kind: 'number', aliases: ['quantidade', 'qtd', 'qtde', 'quant', 'qt'] },
+      { key: 'quantidade', label: 'Quantidade', kind: 'number', aliases: ['quantidade', 'qtd', 'qtde', 'quant', 'qt'] },
       { key: 'valor_unitario', label: 'Valor unitário', kind: 'number', aliases: ['valor unitario', 'vl unit', 'preco', 'preco unitario', 'vlr unit', 'unitario'] },
       { key: 'valor_total', label: 'Valor total', kind: 'number', aliases: ['valor total', 'vl total', 'total', 'valor', 'vlr total'] },
       { key: 'custo_unitario', label: 'Custo unitário', kind: 'number', aliases: ['custo unitario', 'custo', 'vl custo', 'cmv', 'custo medio'] },
@@ -26,7 +26,7 @@ export const TYPES = {
     label: 'Despesas',
     fields: [
       { key: 'data', label: 'Data', required: true, kind: 'date', aliases: ['data', 'data pagamento', 'competencia', 'dt', 'vencimento'] },
-      { key: 'categoria', label: 'Categoria', required: true, kind: 'text', aliases: ['categoria', 'conta', 'plano de contas', 'grupo', 'centro de custo'] },
+      { key: 'categoria', label: 'Categoria', kind: 'text', aliases: ['categoria', 'conta', 'plano de contas', 'grupo', 'centro de custo'] },
       { key: 'descricao', label: 'Descrição', kind: 'text', aliases: ['descricao', 'historico', 'fornecedor', 'detalhe'] },
       { key: 'valor', label: 'Valor', required: true, kind: 'number', aliases: ['valor', 'vl', 'montante', 'total', 'valor pago'] }
     ]
@@ -44,7 +44,7 @@ export const TYPES = {
   metas: {
     label: 'Metas',
     fields: [
-      { key: 'mes', label: 'Mês', required: true, kind: 'month', aliases: ['mes', 'periodo', 'competencia', 'mes ano'] },
+      { key: 'mes', label: 'Mês', kind: 'month', aliases: ['mes', 'periodo', 'competencia', 'mes ano'] },
       { key: 'meta', label: 'Meta de faturamento', required: true, kind: 'number', aliases: ['meta', 'meta faturamento', 'meta receita', 'valor', 'objetivo'] },
       { key: 'vendedor', label: 'Vendedor (opcional)', kind: 'text', aliases: ['vendedor', 'representante'] },
       { key: 'categoria', label: 'Categoria (opcional)', kind: 'text', aliases: ['categoria', 'grupo', 'linha'] }
@@ -93,10 +93,63 @@ function cellValue(v) {
   return v;
 }
 
+// Linha do cabeçalho: relatórios costumam ter título, filtros e linhas em branco antes das colunas.
+// Escolhe, entre as 20 primeiras, a que tem mais nomes de coluna conhecidos.
+let KNOWN = null;
+function headerScore(row) {
+  if (!KNOWN) KNOWN = new Set(Object.values(TYPES).flatMap((t) => t.fields.flatMap((f) => [norm(f.key), ...f.aliases])));
+  let n = 0;
+  for (const c of row) {
+    const h = norm(c);
+    if (!h || h.length > 40) continue;
+    if (KNOWN.has(h) || monthHeader(c)) n++;
+    else if ([...KNOWN].some((a) => a.length > 3 && h.includes(a))) n += 0.5;
+  }
+  return n;
+}
+function findHeader(rows) {
+  let best = 0, score = -1;
+  rows.slice(0, 20).forEach((r, i) => { const s = headerScore(r); if (s > score) { score = s; best = i; } });
+  return score >= 2 ? best : 0;
+}
+
+// Cabeçalho que é um mês ("Jan", "janeiro", "out/26", "10/2026", data do Excel) → "AAAA-MM"
+const MES_NOMES = ['janeiro', 'fevereiro', 'marco', 'abril', 'maio', 'junho', 'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro'];
+export function monthHeader(h) {
+  if (h === '' || h === null || h === undefined || typeof h === 'number') return null;
+  const s = norm(h);
+  const i = MES_NOMES.findIndex((m) => s === m || s === m.slice(0, 3));
+  if (i >= 0) return `${new Date().getFullYear()}-${String(i + 1).padStart(2, '0')}`;
+  return /[a-z]{3}|\d{1,2} \d{2,4}|\d{4} \d{1,2}|^\d{4} \d{2} \d{2}/.test(s) ? parseMonth(h) : null;
+}
+
+// Metas "largas" (um mês por coluna) viram uma linha por mês: Mês | Meta | Vendedor/Categoria
+function unpivotMonths(headers, rows) {
+  const months = headers.map(monthHeader);
+  const mesField = TYPES.metas.fields.find((f) => f.key === 'mes');
+  if (months.filter(Boolean).length < 3 || headers.some((h) => mesField.aliases.includes(norm(h)))) return null;
+  const labelIdx = headers.findIndex((_, i) => !months[i] && rows.some((r) => typeof r[i] === 'string' && r[i].trim() && parseNumber(r[i]) === null));
+  const lh = labelIdx >= 0 ? norm(headers[labelIdx]) : '';
+  const cat = TYPES.metas.fields.find((f) => f.key === 'categoria').aliases;
+  const dim = cat.includes(lh) || lh.includes('categ') ? 'Categoria' : 'Vendedor';
+  const out = [];
+  for (const r of rows) {
+    const label = labelIdx >= 0 ? String(r[labelIdx] ?? '').trim() : '';
+    months.forEach((m, i) => {
+      const v = parseNumber(r[i]);
+      if (m && v !== null) out.push([m, v, /^(total|soma|geral)/.test(norm(label)) ? '' : label]);
+    });
+  }
+  return { headers: ['Mês', 'Meta', dim], rows: out, reshaped: true };
+}
+
 function splitRows(rows) {
-  const headers = rows[0].map((h, i) => String(h || '').trim() || `Coluna ${i + 1}`);
-  const data = rows.slice(1).map((r) => headers.map((_, i) => (r[i] === undefined ? '' : r[i])));
-  return { headers, rows: data };
+  const hi = findHeader(rows);
+  const head = rows[hi];
+  const width = Math.max(head.length, 1);
+  const headers = Array.from({ length: width }, (_, i) => String(head[i] ?? '').trim() || `Coluna ${i + 1}`);
+  const data = rows.slice(hi + 1).map((r) => headers.map((_, i) => (r[i] === undefined ? '' : r[i])));
+  return unpivotMonths(headers, data) || { headers, rows: data, ...(hi ? { skippedTop: hi } : {}) };
 }
 
 // Abas cujo tipo foi detectado com todas as colunas obrigatórias (uma por tipo)
@@ -130,18 +183,13 @@ export async function readFile(buffer, filename) {
     const MAX_COLS = 200;
     const sheetRows = (ws) => {
       const out = [];
-      let width = 0;
       ws.eachRow({ includeEmpty: false }, (r) => {
         const raw = r.values || [];
-        const limit = Math.min(raw.length - 1, width || MAX_COLS);
+        const limit = Math.min(raw.length - 1, MAX_COLS);
         const vals = [];
         for (let i = 1; i <= limit; i++) vals.push(cellValue(raw[i]));
-        if (!vals.some((x) => String(x).trim() !== '')) return;
-        if (!width) { // primeira linha com conteúdo = cabeçalho
-          while (vals.length && String(vals[vals.length - 1]).trim() === '') vals.pop();
-          width = vals.length;
-        }
-        out.push(vals);
+        while (vals.length && String(vals[vals.length - 1]).trim() === '') vals.pop();
+        if (vals.length) out.push(vals);
       });
       return out;
     };
@@ -173,12 +221,18 @@ export function autoMap(type, headers) {
   return map;
 }
 
+const SIGNATURE = { vendas: ['cliente', 'produto', 'quantidade', 'vendedor', 'regiao', 'pedido'], despesas: ['categoria', 'descricao'], contas: ['tipo', 'parceiro', 'vencimento'], metas: ['mes'] };
 export function detectType(headers) {
   let best = 'vendas', score = -1;
   for (const t of Object.keys(TYPES)) {
     const m = autoMap(t, headers);
     const req = TYPES[t].fields.filter((f) => f.required);
-    const s = req.filter((f) => m[f.key] !== undefined).length / req.length + Object.keys(m).length * 0.01;
+    let s = req.filter((f) => m[f.key] !== undefined).length / req.length + Object.keys(m).length * 0.01;
+    if (t === 'vendas') s = (s + (m.valor_unitario !== undefined || m.valor_total !== undefined ? 1 : 0)) / 2 + Object.keys(m).length * 0.005;
+    // colunas típicas de cada tipo desempatam (ex.: Data | Categoria | Valor é despesa, Data | Vendedor | Valor é venda)
+    s += (SIGNATURE[t] || []).filter((k) => m[k] !== undefined).length * 0.1;
+    // Metas só com uma coluna "Valor" é pouco: exige o mês ou a palavra meta/objetivo no cabeçalho
+    if (t === 'metas' && m.mes === undefined && !headers.some((h) => /meta|objetivo/.test(norm(h)))) s *= 0.4;
     if (s > score) { score = s; best = t; }
   }
   return best;
@@ -245,8 +299,11 @@ export function validate(type, rows, mapping) {
   if (missing.length) return { ok: false, missing: missing.map((f) => f.label), errors: [], valid: [], total: rows.length };
 
   const errors = [], valid = [];
+  const filled = { cliente: 0, produto: 0, quantidade: 0, categoria: 0, mes: 0 };
+  let totals = 0;
   rows.forEach((r, i) => {
     const out = {}, rowErr = [];
+    const fill = [];
     for (const f of def.fields) {
       const idx = mapping[f.key];
       if (idx === undefined || idx === null || idx === '') continue;
@@ -261,16 +318,25 @@ export function validate(type, rows, mapping) {
       out[f.key] = v;
     }
     if (type === 'vendas') {
+      if (!out.cliente) { out.cliente = 'Cliente não informado'; fill.push('cliente'); }
+      if (!out.produto) { out.produto = 'Produto não informado'; fill.push('produto'); }
+      if (out.quantidade == null) { out.quantidade = 1; fill.push('quantidade'); }
       if (out.quantidade !== null && out.quantidade <= 0) rowErr.push('Quantidade precisa ser maior que zero');
       if (out.valor_unitario == null && out.valor_total == null) rowErr.push('Sem valor unitário nem total');
     }
+    if (type === 'despesas' && !out.categoria) { out.categoria = 'Sem categoria'; fill.push('categoria'); }
+    if (type === 'metas' && !out.mes) { out.mes = new Date().toISOString().slice(0, 7); fill.push('mes'); }
     if (type === 'contas' && out.tipo) {
       const t = norm(out.tipo);
       out.tipo = /pag|desp|forn|saida|deb/.test(t) ? 'pagar' : /rec|cli|entrada|cred/.test(t) ? 'receber' : null;
       if (!out.tipo) rowErr.push('Tipo precisa ser "pagar" ou "receber"');
     }
-    if (rowErr.length) errors.push({ row: i + 2, messages: rowErr });
-    else valid.push(out);
+    // Linha de total/subtotal do relatório (que não passa na validação): ignora sem contar como erro.
+    // Um cliente chamado "Total Distribuidora" numa linha válida continua sendo importado.
+    const firstText = r.find((c) => typeof c === 'string' && c.trim());
+    if (rowErr.length && firstText && /^(total|subtotal|soma|totais)\b/.test(norm(firstText))) totals++;
+    else if (rowErr.length) errors.push({ row: i + 2, messages: rowErr });
+    else { valid.push(out); fill.forEach((k) => filled[k]++); }
   });
 
   const summary = { };
@@ -283,6 +349,15 @@ export function validate(type, rows, mapping) {
     summary.missingCost = valid.filter((v) => v.custo_unitario == null).length;
   }
   if (type === 'despesas' || type === 'contas') summary.amount = valid.reduce((s, v) => s + Math.abs(v.valor), 0);
+  const NOTE = {
+    cliente: (n) => `${n} linha(s) sem cliente: entram como "Cliente não informado".`,
+    produto: (n) => `${n} linha(s) sem produto: entram como "Produto não informado".`,
+    quantidade: (n) => `${n} linha(s) sem quantidade: considerada quantidade 1.`,
+    categoria: (n) => `${n} despesa(s) sem categoria: entram como "Sem categoria".`,
+    mes: (n) => `${n} meta(s) sem mês: consideradas para o mês atual (${new Date().toISOString().slice(5, 7)}/${new Date().getFullYear()}).`
+  };
+  summary.notes = Object.entries(filled).filter(([, n]) => n).map(([k, n]) => NOTE[k](n));
+  if (totals) summary.notes.push(`${totals} linha(s) de total ignorada(s).`);
   return { ok: errors.length === 0 || valid.length > 0, missing: [], errors: errors.slice(0, 50), errorCount: errors.length, valid, total: rows.length, summary };
 }
 
@@ -374,7 +449,7 @@ export function importAll(orgId, userId, sheets, { filename = '' } = {}) {
     const v = validate(sh.type, sh.rows, sh.mapping);
     if (v.missing.length || !v.valid.length) { results.push({ sheet: sh.name, type: sh.type, inserted: 0, errorCount: v.errorCount || 0, error: 'Nenhuma linha válida' }); continue; }
     const r = commit(orgId, userId, sh.type, v.valid, { mode: 'append', filename: `${filename} · aba ${sh.name}` });
-    results.push({ sheet: sh.name, ...r, errorCount: v.errorCount });
+    results.push({ sheet: sh.name, ...r, errorCount: v.errorCount, notes: v.summary.notes });
   }
   return { results, replacedDemo: results.some((r) => r.replacedDemo) };
 }

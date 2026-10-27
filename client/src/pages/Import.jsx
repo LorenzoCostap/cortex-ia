@@ -51,6 +51,32 @@ async function previewFile(file) {
   return d;
 }
 
+function MapTable({ fields, headers, sample, mapping, onChange }) {
+  const ex = (idx) => (idx === undefined ? '' : sample?.map((r) => r[idx]).filter((x) => x !== '').slice(0, 2).join(' · '));
+  return (
+    <div className="table-wrap">
+      <table className="table" style={{ minWidth: 520 }}>
+        <thead><tr><th>Campo do Cortex</th><th>Coluna da planilha</th><th>Exemplo</th></tr></thead>
+        <tbody>
+          {fields.map((f) => (
+            <tr key={f.key}>
+              <td>{f.label}{f.required && <span style={{ color: 'var(--red-text)' }}> *</span>}</td>
+              <td style={{ width: 220 }}>
+                <select className="select" style={{ minHeight: 36 }} aria-label={`Coluna para ${f.label}`} value={mapping[f.key] ?? ''}
+                  onChange={(e) => { const n = { ...mapping }; if (e.target.value === '') delete n[f.key]; else n[f.key] = +e.target.value; onChange(n); }}>
+                  <option value="">— não usar —</option>
+                  {headers.map((h, i) => <option key={i} value={i}>{h}</option>)}
+                </select>
+              </td>
+              <td className="muted" style={{ fontSize: 13 }}>{ex(mapping[f.key])}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 function Steps({ step }) {
   const steps = ['Enviar arquivo', 'Mapear colunas', 'Validar', 'Importar'];
   return (
@@ -98,13 +124,15 @@ function Wizard({ isDemo, onDone }) {
     setBusy(false);
   };
 
-  // Todas as colunas obrigatórias foram reconhecidas automaticamente?
-  const readyToImport = (d) => {
-    if (d.sheets?.length > 1) return true;
-    const req = (types.data?.[d.type]?.fields || []).filter((f) => f.required);
-    if (req.some((f) => d.mapping[f.key] === undefined)) return false;
-    return d.type !== 'vendas' || d.mapping.valor_unitario !== undefined || d.mapping.valor_total !== undefined;
+  // Colunas obrigatórias que ainda não foram indicadas
+  const missingFor = (t, m) => {
+    const miss = (types.data?.[t]?.fields || []).filter((f) => f.required && m[f.key] === undefined).map((f) => f.label);
+    if (t === 'vendas' && m.valor_unitario === undefined && m.valor_total === undefined) miss.push('Valor (unitário ou total)');
+    return miss;
   };
+  const readyToImport = (d) => d.sheets?.length > 1 || !missingFor(d.type, d.mapping).length;
+  const [edit, setEdit] = useState(null);
+  const updateBatch = (i, patch) => setBatch((list) => list.map((b, j) => { if (j !== i) return b; const n = { ...b, ...patch }; return { ...n, ready: readyToImport(n) }; }));
 
   // Vários arquivos ou uma pasta: lê todos e mostra o que foi reconhecido
   const uploadMany = async (list) => {
@@ -199,20 +227,42 @@ function Wizard({ isDemo, onDone }) {
           <div><h2 className="card-title">{batch.length} arquivos selecionados</h2><p className="card-sub">O Cortex reconheceu o conteúdo de cada um. Confira e importe tudo de uma vez.</p></div>
           <div className="table-wrap">
             <table className="table" style={{ minWidth: 560 }}>
-              <thead><tr><th>Arquivo</th><th>Conteúdo</th><th className="num">Linhas</th><th>Situação</th></tr></thead>
+              <thead><tr><th>Arquivo</th><th>Conteúdo</th><th className="num">Linhas</th><th>Situação</th><th></th></tr></thead>
               <tbody>
-                {batch.map((b) => (
+                {batch.map((b, i) => (
                   <tr key={b.name}>
                     <td>{b.name}</td>
-                    <td className="muted">{b.error ? '—' : b.sheets?.length > 1 ? b.sheets.map((x) => x.label).join(', ') : TYPE_LABEL[b.type]}</td>
+                    <td className="muted">{b.error ? '—' : b.sheets?.length > 1 ? b.sheets.map((x) => x.label).join(', ') : (
+                      <select className="select" style={{ minHeight: 34, minWidth: 170 }} aria-label={`Tipo de ${b.name}`} value={b.type}
+                        onChange={(e) => updateBatch(i, { type: e.target.value, mapping: b.mappings[e.target.value] || {} })}>
+                        {Object.entries(TYPE_LABEL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+                      </select>
+                    )}</td>
                     <td className="num">{b.error ? '—' : num(b.sheets?.length > 1 ? b.sheets.reduce((n, x) => n + x.rowCount, 0) : b.rowCount)}</td>
-                    <td style={{ color: b.ready ? 'var(--green)' : 'var(--red-text)', fontSize: 13 }}>{b.error || (b.ready ? 'Pronto' : 'Colunas não reconhecidas — importe este arquivo sozinho para ajustar')}</td>
+                    <td style={{ color: b.ready ? 'var(--green)' : 'var(--red-text)', fontSize: 13 }}>{b.error || (b.ready ? 'Pronto' : `Falta indicar: ${missingFor(b.type, b.mapping).join(', ')}`)}</td>
+                    <td>{!b.error && !(b.sheets?.length > 1) && <button className={`btn sm ${b.ready ? '' : 'primary'}`} onClick={() => setEdit(i)}>Ajustar colunas</button>}</td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
+          {batch.some((b) => b.info?.length) && <div className="alert info"><Icon name="info" color="var(--violet-text)" /><span>{batch.filter((b) => b.info?.length).map((b) => `${b.name}: ${b.info.join(' ')}`).join(' · ')}</span></div>}
           {isDemo && <div className="alert warn"><Icon name="info" color="var(--amber)" /><span>Esta é a primeira importação: <strong>todos os dados de demonstração serão apagados</strong>. Usuários e configurações continuam.</span></div>}
+          {edit !== null && batch[edit] && (
+            <Modal title={`Ajustar colunas · ${batch[edit].name}`} onClose={() => setEdit(null)}>
+              <label className="field">Tipo de planilha
+                <select className="select" value={batch[edit].type} onChange={(e) => updateBatch(edit, { type: e.target.value, mapping: batch[edit].mappings[e.target.value] || {} })}>
+                  {Object.entries(TYPE_LABEL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+                </select>
+              </label>
+              <MapTable fields={types.data?.[batch[edit].type]?.fields || []} headers={batch[edit].headers} sample={batch[edit].sample} mapping={batch[edit].mapping} onChange={(m) => updateBatch(edit, { mapping: m })} />
+              <p className="dim" style={{ fontSize: 12, margin: 0 }}>* obrigatório. O que não existir na planilha é completado e avisado na importação (ex.: sem cliente → “Cliente não informado”).</p>
+              <div className="toolbar" style={{ justifyContent: 'flex-end' }}>
+                <span style={{ color: batch[edit].ready ? 'var(--green)' : 'var(--red-text)', fontSize: 13, marginRight: 'auto' }}>{batch[edit].ready ? 'Pronto para importar' : `Falta indicar: ${missingFor(batch[edit].type, batch[edit].mapping).join(', ')}`}</span>
+                <button className="btn primary" onClick={() => setEdit(null)}>Concluir</button>
+              </div>
+            </Modal>
+          )}
           <div className="toolbar" style={{ justifyContent: 'flex-end' }}>
             <button className="btn" onClick={reset}>Voltar</button>
             <button className="btn primary" onClick={runBatch} disabled={busy || !batch.some((b) => b.ready)}>{busy ? <><Spinner color="#fff" />Importando…</> : `Importar ${batch.filter((b) => b.ready).length} arquivo(s)`}</button>
@@ -233,6 +283,7 @@ function Wizard({ isDemo, onDone }) {
               <button className="btn primary" onClick={runImportAll} disabled={busy}>{busy ? <><Spinner color="#fff" />Importando…</> : 'Importar todas as abas'}</button>
             </div>
           )}
+          {preview.info?.map((n) => <div key={n} className="alert info"><Icon name="info" color="var(--violet-text)" /><span>{n}</span></div>)}
           <div className="card-head">
             <div><h2 className="card-title">Mapear colunas · {preview.filename}</h2><p className="card-sub">{num(preview.rowCount)} linhas · o Cortex sugeriu o mapeamento, confira antes de continuar.</p></div>
             <label className="field" style={{ minWidth: 240 }}>Tipo de planilha
@@ -282,6 +333,7 @@ function Wizard({ isDemo, onDone }) {
                 {check.summary.revenue !== undefined && <div className="kpi" style={{ padding: 16 }}><span className="kpi-label">Receita no arquivo</span><span className="kpi-value" style={{ fontSize: 22 }}>{brl(check.summary.revenue)}</span></div>}
                 {check.summary.amount !== undefined && <div className="kpi" style={{ padding: 16 }}><span className="kpi-label">Valor total</span><span className="kpi-value" style={{ fontSize: 22 }}>{brl(check.summary.amount)}</span></div>}
               </div>
+              {check.summary.notes?.map((n) => <div key={n} className="alert warn"><Icon name="info" color="var(--amber)" /><span>{n}</span></div>)}
               {check.summary.missingCost > 0 && <div className="alert warn"><Icon name="info" color="var(--amber)" /><span>{num(check.summary.missingCost)} linha(s) sem custo unitário: o custo será estimado (margem bruta de 30%).</span></div>}
               {check.errors.length > 0 && (
                 <details style={{ background: 'var(--side)', border: '1px solid var(--line)', borderRadius: 10, padding: '10px 14px' }}>
@@ -312,7 +364,7 @@ function Wizard({ isDemo, onDone }) {
           <h2 style={{ fontSize: 18, fontWeight: 600 }}>Importação concluída</h2>
           {result.all ? (
             <ul className="muted" style={{ margin: 0, padding: 0, listStyle: 'none', lineHeight: 1.8 }}>
-              {result.results.map((r, i) => <li key={i}><strong style={{ color: 'var(--text)' }}>{TYPE_LABEL[r.type] || 'Arquivo'}</strong> ({r.source || `aba ${r.sheet}`}): {r.error ? r.error : `${num(r.inserted)} linha(s)${r.orders ? ` em ${num(r.orders)} pedido(s)` : ''}${r.skipped ? `, ${num(r.skipped)} repetida(s) ignorada(s)` : ''}${r.errorCount ? `, ${num(r.errorCount)} com erro` : ''}`}</li>)}
+              {result.results.map((r, i) => <li key={i}><strong style={{ color: 'var(--text)' }}>{TYPE_LABEL[r.type] || 'Arquivo'}</strong> ({r.source || `aba ${r.sheet}`}): {r.error ? r.error : `${num(r.inserted)} linha(s)${r.orders ? ` em ${num(r.orders)} pedido(s)` : ''}${r.skipped ? `, ${num(r.skipped)} repetida(s) ignorada(s)` : ''}${r.errorCount ? `, ${num(r.errorCount)} com erro` : ''}`}{r.notes?.length ? <span className="dim" style={{ display: 'block', fontSize: 12 }}>{r.notes.join(' ')}</span> : null}</li>)}
               {result.replacedDemo && <li>Os dados de demonstração foram removidos.</li>}
             </ul>
           ) : (
@@ -320,6 +372,7 @@ function Wizard({ isDemo, onDone }) {
             {num(result.inserted)} linha(s) de {TYPE_LABEL[result.type].toLowerCase()} importada(s){result.orders ? ` em ${num(result.orders)} pedido(s)` : ''}.
             {result.skipped ? ` ${num(result.skipped)} repetida(s) ignorada(s).` : ''}{result.errorCount ? ` ${num(result.errorCount)} com erro ignorada(s).` : ''}
             {result.replacedDemo ? ' Os dados de demonstração foram removidos.' : ''}
+            {result.notes?.length ? <span className="dim" style={{ display: 'block', fontSize: 13, marginTop: 6 }}>{result.notes.join(' ')}</span> : null}
           </p>
           )}
           <div className="toolbar" style={{ justifyContent: 'center' }}>
