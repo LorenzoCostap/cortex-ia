@@ -125,12 +125,23 @@ export async function readFile(buffer, filename) {
   } else if (ext === 'xlsx' || ext === 'xlsm') {
     const wb = new ExcelJS.Workbook();
     await wb.xlsx.load(buffer);
+    // Lê só até a última coluna do cabeçalho: planilhas reais costumam ter células "fantasma"
+    // (formatação, espaço) lá na coluna XFD, e ler 16 mil colunas por linha travava o servidor.
+    const MAX_COLS = 200;
     const sheetRows = (ws) => {
       const out = [];
+      let width = 0;
       ws.eachRow({ includeEmpty: false }, (r) => {
+        const raw = r.values || [];
+        const limit = Math.min(raw.length - 1, width || MAX_COLS);
         const vals = [];
-        for (let i = 1; i <= ws.columnCount; i++) vals.push(cellValue(r.getCell(i).value));
-        if (vals.some((x) => String(x).trim() !== '')) out.push(vals);
+        for (let i = 1; i <= limit; i++) vals.push(cellValue(raw[i]));
+        if (!vals.some((x) => String(x).trim() !== '')) return;
+        if (!width) { // primeira linha com conteúdo = cabeçalho
+          while (vals.length && String(vals[vals.length - 1]).trim() === '') vals.pop();
+          width = vals.length;
+        }
+        out.push(vals);
       });
       return out;
     };

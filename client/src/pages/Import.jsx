@@ -40,8 +40,13 @@ async function filesFromDrop(dt) {
 }
 
 async function previewFile(file) {
-  const res = await fetch('/api/import/preview', { method: 'POST', headers: { 'x-filename': encodeURIComponent(file.name), 'content-type': 'application/octet-stream' }, body: file });
-  const d = await res.json();
+  let res;
+  try {
+    res = await fetch('/api/import/preview', { method: 'POST', headers: { 'x-filename': encodeURIComponent(file.name), 'content-type': 'application/octet-stream' }, body: file, signal: AbortSignal.timeout(180e3) });
+  } catch (e) {
+    throw new Error(e.name === 'TimeoutError' ? `${file.name}: a leitura passou de 3 minutos. Tente salvar a planilha como .csv.` : `${file.name}: sem conexão com o Cortex. Confira se ele está aberto.`);
+  }
+  const d = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(d.error || 'Não foi possível ler o arquivo.');
   return d;
 }

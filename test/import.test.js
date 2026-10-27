@@ -52,6 +52,19 @@ test('XLSX é lido com datas e números reais', async () => {
   assert.equal(v.valid[0].valor, 34000.5);
 });
 
+test('XLSX com célula "fantasma" na última coluna é lido rápido e só até o cabeçalho', async () => {
+  const wb = new ExcelJS.Workbook();
+  const ws = wb.addWorksheet('Vendas');
+  ws.addRow(['Data', 'Cliente', 'Produto', 'Quantidade', 'Valor total']);
+  for (let i = 0; i < 2000; i++) ws.addRow(['01/09/2026', 'Cli', 'Prod', 1, 10]);
+  ws.getCell('XFD1').value = ' ';
+  const t = Date.now();
+  const p = await I.readFile(Buffer.from(await wb.xlsx.writeBuffer()), 'fantasma.xlsx');
+  assert.equal(p.headers.length, 5);
+  assert.equal(p.rows.length, 2000);
+  assert.ok(Date.now() - t < 10000);
+});
+
 test('arquivo com várias abas importa vendas, despesas, contas e metas de uma vez', async () => {
   const p = await I.readFile(fs.readFileSync(new URL('../exemplos/cortex-exemplo-dados.xlsx', import.meta.url)), 'tudo.xlsx');
   assert.deepEqual(p.sheets.map((s) => s.type).sort(), ['contas', 'despesas', 'metas', 'vendas']);
