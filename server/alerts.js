@@ -144,7 +144,7 @@ export function refreshAlerts(org) {
         // Reabre um alerta resolvido com a mesma chave (como novo), ou cria
         const r = db.prepare(`INSERT INTO alerts (org_id, key, rule, category, severity, title, text, link, cta) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
           ON CONFLICT(org_id, key) DO UPDATE SET rule = excluded.rule, category = excluded.category, severity = excluded.severity, title = excluded.title, text = excluded.text, link = excluded.link, cta = excluded.cta,
-            created_at = datetime('now'), updated_at = datetime('now'), read_at = NULL, resolved_at = NULL`).run(org, a.key, a.rule, a.category, a.severity, a.title, a.text, a.link, a.cta);
+            created_at = datetime('now'), updated_at = datetime('now'), read_at = NULL, resolved_at = NULL, dismissed_at = NULL`).run(org, a.key, a.rule, a.category, a.severity, a.title, a.text, a.link, a.cta);
         created.push({ ...a, id: r.lastInsertRowid });
       }
     }
@@ -155,7 +155,7 @@ export function refreshAlerts(org) {
 
 const SEV_ORDER = { alta: 0, media: 1, info: 2 };
 export function listAlerts(org, { includeResolved = false } = {}) {
-  return db.prepare(`SELECT id, rule, category, severity, title, text, link, cta, created_at createdAt, updated_at updatedAt, read_at readAt, resolved_at resolvedAt FROM alerts WHERE org_id = ? ${includeResolved ? '' : 'AND resolved_at IS NULL'} ORDER BY created_at DESC`).all(org)
+  return db.prepare(`SELECT id, rule, category, severity, title, text, link, cta, created_at createdAt, updated_at updatedAt, read_at readAt, resolved_at resolvedAt FROM alerts WHERE org_id = ? AND dismissed_at IS NULL ${includeResolved ? '' : 'AND resolved_at IS NULL'} ORDER BY created_at DESC`).all(org)
     .sort((a, b) => !!a.readAt - !!b.readAt || SEV_ORDER[a.severity] - SEV_ORDER[b.severity] || b.createdAt.localeCompare(a.createdAt));
 }
 
@@ -168,4 +168,4 @@ export function maybeRefreshAlerts(org, minutes = 5) {
   return refreshAlerts(org);
 }
 
-export const unreadCount = (org) => db.prepare('SELECT COUNT(*) n FROM alerts WHERE org_id = ? AND resolved_at IS NULL AND read_at IS NULL').get(org).n;
+export const unreadCount = (org) => db.prepare('SELECT COUNT(*) n FROM alerts WHERE org_id = ? AND resolved_at IS NULL AND read_at IS NULL AND dismissed_at IS NULL').get(org).n;

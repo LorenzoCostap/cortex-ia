@@ -159,6 +159,9 @@ addColumn('orders', 'seller', 'TEXT');
 addColumn('orders', 'external_id', 'TEXT');
 addColumn('users', 'must_change_password', 'INTEGER NOT NULL DEFAULT 0');
 addColumn('events', 'ip', 'TEXT');
+addColumn('alerts', 'dismissed_at', 'TEXT');       // alerta apagado pelo usuário (volta só se a situação se resolver e acontecer de novo)
+addColumn('organizations', 'logo', 'TEXT');        // foto da organização (data URL, já reduzida no navegador)
+addColumn('organizations', 'logo_at', 'TEXT');
 db.exec(`
 CREATE TABLE IF NOT EXISTS goal_items (
   org_id INTEGER NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
@@ -189,6 +192,7 @@ CREATE INDEX IF NOT EXISTS idx_items_product ON order_items(product_id);
 CREATE INDEX IF NOT EXISTS idx_bills_org_kind ON bills(org_id, kind, paid_at, due_date);
 CREATE INDEX IF NOT EXISTS idx_customers_org ON customers(org_id);
 `);
+addColumn('imported_files', 'type', 'TEXT');
 
 export const MODULES = ['dashboard', 'assistente', 'vendas', 'equipe', 'metas', 'fluxo', 'alertas', 'avisos', 'importacao', 'relatorios', 'historico', 'configuracoes', 'administracao'];
 export const ROLES = ['admin', 'gestor', 'analista', 'visualizador'];

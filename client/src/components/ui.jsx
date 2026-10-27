@@ -125,6 +125,40 @@ export function Switch({ checked, onChange, label }) {
   );
 }
 
+/** Caixinha de seleção (lista com apagar em lote). */
+export function Check({ checked, onChange, label, disabled, title }) {
+  return (
+    <label className="sel-check" title={title} onClick={(e) => e.stopPropagation()}>
+      <input type="checkbox" checked={!!checked} disabled={disabled} onChange={(e) => onChange(e.target.checked)} aria-label={label} />
+    </label>
+  );
+}
+
+/** Seleção de vários itens de uma lista. */
+export function useSelection() {
+  const [sel, setSel] = useState(() => new Set());
+  return {
+    sel, size: sel.size, has: (id) => sel.has(id),
+    toggle: (id, on) => setSel((s) => { const n = new Set(s); (on ?? !n.has(id)) ? n.add(id) : n.delete(id); return n; }),
+    setAll: (ids) => setSel(new Set(ids)), clear: () => setSel(new Set())
+  };
+}
+
+/** Barra que aparece só quando há itens selecionados. */
+export function SelectBar({ selection, ids, children, compact }) {
+  if (!selection.size) return null;
+  const all = ids.length > 0 && ids.every((id) => selection.has(id));
+  return (
+    <div className={`sel-bar rise${compact ? ' compact' : ''}`} role="toolbar" aria-label="Itens selecionados">
+      <label className="sel-all"><input type="checkbox" checked={all} onChange={(e) => (e.target.checked ? selection.setAll(ids) : selection.clear())} />Selecionar todos</label>
+      <span className="dim" style={{ fontSize: 13 }}>{selection.size} selecionado(s)</span>
+      <button className="btn sm ghost" onClick={selection.clear}>Cancelar</button>
+      <span style={{ flex: 1 }} />
+      {children}
+    </div>
+  );
+}
+
 export function Modal({ title, children, onClose }) {
   useEffect(() => {
     const k = (e) => e.key === 'Escape' && onClose();

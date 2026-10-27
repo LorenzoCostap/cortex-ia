@@ -25,6 +25,16 @@ test('alertas da demonstração', () => {
   assert.equal(A.unreadCount(org), titles.length);
 });
 
+test('alerta apagado não volta enquanto a situação continua', () => {
+  const a = A.listAlerts(org).find((x) => /Mercado Bom Preço parou de comprar/.test(x.title));
+  const before = A.unreadCount(org);
+  db.prepare("UPDATE alerts SET dismissed_at = datetime('now') WHERE id = ?").run(a.id);
+  A.refreshAlerts(org);
+  assert.ok(!A.listAlerts(org).some((x) => x.id === a.id));
+  assert.equal(A.unreadCount(org), before - 1);
+  db.prepare('UPDATE alerts SET dismissed_at = NULL WHERE id = ?').run(a.id); // devolve para os próximos testes
+});
+
 test('alerta some quando a situação se resolve', () => {
   const bill = db.prepare("SELECT id FROM bills WHERE org_id = ? AND party = 'Torrefação Serra Alta' AND paid_at IS NULL").get(org);
   db.prepare("UPDATE bills SET paid_at = date('now') WHERE id = ?").run(bill.id);

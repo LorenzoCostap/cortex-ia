@@ -244,3 +244,11 @@ table.table { width: 100%; border-collapse: collapse; font-size: 14px; }
 .mic-on { background: var(--red-bg) !important; border-color: var(--red-line) !important; color: var(--red-text) !important; animation: pulse 1.4s ease infinite; }
 @keyframes pulse { 0%, 100% { box-shadow: 0 0 0 0 rgba(248, 113, 113, .35); } 50% { box-shadow: 0 0 0 6px rgba(248, 113, 113, 0); } }
 @keyframes growx { from { transform: scaleX(0); } to { transform: scaleX(1); } }
+
+/* Seleção em lote (Alertas, Relatórios, Histórico) */
+.sel-check { display: inline-flex; align-items: center; justify-content: center; flex: none; width: 28px; height: 28px; cursor: pointer; }
+.sel-check input, .sel-all input { width: 17px; height: 17px; accent-color: var(--violet); cursor: pointer; margin: 0; }
+.sel-check input:disabled { cursor: not-allowed; opacity: .35; }
+.sel-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; padding: 10px 14px; border-radius: 12px; background: var(--violet-soft); border: 1px solid var(--violet-line); position: sticky; top: 8px; z-index: 5; }
+.sel-bar.compact { padding: 8px 10px; gap: 8px; }
+.sel-all { display: inline-flex; align-items: center; gap: 8px; font-size: 14px; cursor: pointer; }

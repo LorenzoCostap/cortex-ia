@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react';
 import { api } from '../api.js';
+import { useAuth } from '../auth.jsx';
 import { PageHead } from '../components/Layout.jsx';
-import { Icon, ErrorBox, Empty, Markdown, useAsync, useToast } from '../components/ui.jsx';
+import { Icon, ErrorBox, Empty, Markdown, useAsync, useToast, Check, SelectBar, useSelection } from '../components/ui.jsx';
 import { dayGroup, relTime } from '../format.js';
 
 const TABS = [['', 'Tudo'], ['ai', 'Perguntas à IA'], ['report', 'Relatórios'], ['import', 'Importações'], ['config', 'Configurações e acesso'], ['auditoria', 'Auditoria']];
@@ -39,6 +40,16 @@ export default function History() {
   const [open, setOpen] = useState(null);
   const [user, setUser] = useState('');
   const toast = useToast();
+  const { me } = useAuth();
+  const isAdmin = me.user.role === 'admin';
+  const selection = useSelection();
+  const PROTECTED = ['auth', 'admin']; // login e permissões: auditoria, nunca apagados
+  const deletable = (h_) => (h_?.events || []).filter((e) => !PROTECTED.includes(e.kind)).map((e) => e.id);
+  const removeMany = async (body, label) => {
+    if (!window.confirm(`Apagar ${label}? Acessos e mudanças de permissão não são apagados, e a exclusão fica registrada na Auditoria.`)) return;
+    try { const r = await api('/history/delete', { method: 'POST', body }); selection.clear(); h.reload(); toast(`${r.deleted} registro(s) apagado(s)`); }
+    catch (err) { toast('Erro', { kind: 'err', text: err.message }); }
+  };
   useEffect(() => { const t = setTimeout(() => setDebounced(q), 300); return () => clearTimeout(t); }, [q]);
   const h = useAsync(() => api(`/history?kind=${tab}&q=${encodeURIComponent(debounced)}&user=${user}`), [tab, debounced, user]);
   const audit = tab === 'auditoria';
@@ -82,6 +93,10 @@ export default function History() {
       {h.data && !h.data.events.length && (
         <Empty icon="clock" title={q ? 'Nada encontrado' : 'Nenhum registro ainda'} text={q ? `Nenhum evento contém “${q}”.` : 'Quando alguém usar o Cortex, gerar relatórios ou mudar configurações, o registro aparece aqui.'} />
       )}
+      {isAdmin && <SelectBar selection={selection} ids={deletable(h.data)}>
+        <button className="btn sm" onClick={() => removeMany({ olderThanDays: 90 }, 'os registros com mais de 90 dias')}><Icon name="trash" size={14} />Apagar mais antigos que 90 dias</button>
+        <button className="btn sm danger" onClick={() => removeMany({ ids: [...selection.sel] }, `${selection.size} registro(s)`)}><Icon name="trash" size={14} />Apagar selecionados</button>
+      </SelectBar>}
       {h.data?.events.length > 0 && (
         <section className="card" style={{ padding: 0, gap: 0, overflow: 'hidden', opacity: h.loading ? 0.6 : 1 }} aria-label="Eventos">
           {h.data.events.map((e) => {
@@ -93,7 +108,9 @@ export default function History() {
             return (
               <div key={e.id}>
                 {showDay && <div style={{ padding: '14px 22px 8px', fontSize: 12, fontWeight: 600, letterSpacing: '.06em', textTransform: 'uppercase', color: 'var(--dim)', background: 'var(--side)', borderBottom: '1px solid var(--line-soft)' }}>{day}</div>}
-                <div style={{ borderBottom: '1px solid var(--line-soft)' }}>
+                <div style={{ borderBottom: '1px solid var(--line-soft)', display: 'flex', alignItems: 'flex-start' }}>
+                  {isAdmin && <span style={{ padding: '20px 0 0 14px' }}><Check checked={selection.has(e.id)} onChange={(v) => selection.toggle(e.id, v)} disabled={PROTECTED.includes(e.kind)} title={PROTECTED.includes(e.kind) ? 'Acessos e permissões ficam guardados para auditoria' : undefined} label={`Selecionar ${e.title}`} /></span>}
+                  <div style={{ flex: 1, minWidth: 0 }}>
                   <button disabled={!expandable} onClick={() => setOpen(open === e.id ? null : e.id)} aria-expanded={expandable ? open === e.id : undefined}
                     style={{ width: '100%', display: 'flex', gap: 14, alignItems: 'center', padding: '16px 22px', border: 0, background: 'transparent', textAlign: 'left', cursor: expandable ? 'pointer' : 'default', opacity: 1 }}>
                     <span style={{ flex: 'none', width: 36, height: 36, borderRadius: 10, background: bg, display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Icon name={icon} size={17} color={fg} /></span>
@@ -105,6 +122,7 @@ export default function History() {
                     <span className="mono dim" style={{ fontSize: 12, minWidth: 70, textAlign: 'right' }}>{relTime(e.created_at).replace(/^(Hoje|Ontem), /, '')}</span>
                   </button>
                   {open === e.id && <div style={{ padding: '0 22px 18px 72px', color: 'var(--text-2)', fontSize: 14 }}>{e.kind === 'ai' ? <Markdown text={e.meta.answer} /> : <MetaDetails meta={e.meta} />}</div>}
+                  </div>
                 </div>
               </div>
             );

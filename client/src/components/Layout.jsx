@@ -38,7 +38,7 @@ export default function Layout({ children }) {
       <aside className="side">
         <Link to="/" className="brand"><BrandMark /><span className="brand-name">CORTEX <span>IA</span></span></Link>
         <div className="org-chip">
-          <span className="avatar sq">{initials(me.org.name)}</span>
+          {me.org.logo ? <img className="avatar sq" src={me.org.logo} alt="" style={{ objectFit: 'cover', padding: 0, background: 'transparent' }} /> : <span className="avatar sq">{initials(me.org.name)}</span>}
           <span style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 2 }}>
             <span style={{ fontSize: 14, fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{me.org.name}</span>
             <span className="dim" style={{ fontSize: 12 }}>{me.org.segment || 'Organização'}</span>

@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { api } from '../api.js';
 import { PageHead } from '../components/Layout.jsx';
-import { Icon, Spinner, Switch, ErrorBox, Empty, useAsync, useToast } from '../components/ui.jsx';
+import { Icon, Spinner, Switch, ErrorBox, Empty, Check, SelectBar, useSelection, useAsync, useToast } from '../components/ui.jsx';
 import { relTime } from '../format.js';
 
 const MODE = { manual: 'Manual', agendado: 'Agendado', ia: 'Pela IA' };
@@ -89,6 +89,19 @@ export default function Reports() {
   const [deleted, setDeleted] = useState([]);
   const reports = (list.data?.reports || []).filter((r) => !deleted.includes(String(r.id)));
   const current = id || reports[0]?.id;
+  const selection = useSelection();
+  const removeMany = async (body, label) => {
+    if (!window.confirm(`Apagar ${label}? Não dá para desfazer.`)) return;
+    try {
+      const r = await api('/reports/delete', { method: 'POST', body });
+      const gone = body.ids ? body.ids.map(String) : null;
+      if (gone) setDeleted((d) => [...d, ...gone]);
+      selection.clear();
+      await list.reload();
+      if (!gone || gone.includes(String(current))) nav('/relatorios', { replace: true });
+      toast(`${r.deleted} relatório(s) apagado(s)`);
+    } catch (e) { toast('Erro', { kind: 'err', text: e.message }); }
+  };
 
   useEffect(() => { if (!id && reports[0]) nav(`/relatorios/${reports[0].id}`, { replace: true }); }, [id, reports[0]?.id, nav]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -149,11 +162,18 @@ export default function Reports() {
 
           <section className="card tight" aria-labelledby="rc">
             <h2 id="rc" className="card-title">Relatórios recentes</h2>
+            <SelectBar selection={selection} ids={reports.slice(0, 12).map((r) => r.id)} compact>
+              <button className="btn sm" onClick={() => removeMany({ olderThanDays: 90 }, 'os relatórios com mais de 90 dias')}><Icon name="trash" size={14} />Mais de 90 dias</button>
+              <button className="btn sm danger" onClick={() => removeMany({ ids: [...selection.sel] }, `${selection.size} relatório(s)`)}><Icon name="trash" size={14} />Apagar</button>
+            </SelectBar>
             {reports.length ? reports.slice(0, 12).map((r) => (
-              <button key={r.id} onClick={() => nav(`/relatorios/${r.id}`)} className="btn ghost" style={{ justifyContent: 'flex-start', flexDirection: 'column', alignItems: 'flex-start', gap: 3, minHeight: 0, padding: '10px 12px', whiteSpace: 'normal', textAlign: 'left', background: String(r.id) === String(current) ? 'var(--violet-soft)' : 'transparent', fontWeight: 400 }}>
+              <div key={r.id} style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+              <Check checked={selection.has(r.id)} onChange={(v) => selection.toggle(r.id, v)} label={`Selecionar ${r.title}`} />
+              <button onClick={() => nav(`/relatorios/${r.id}`)} className="btn ghost" style={{ flex: 1, minWidth: 0, justifyContent: 'flex-start', flexDirection: 'column', alignItems: 'flex-start', gap: 3, minHeight: 0, padding: '10px 12px', whiteSpace: 'normal', textAlign: 'left', background: String(r.id) === String(current) ? 'var(--violet-soft)' : 'transparent', fontWeight: 400 }}>
                 <span style={{ fontSize: 14 }}>{r.title}</span>
                 <span className="dim" style={{ fontSize: 12 }}>{MODE[r.mode]} · {relTime(r.created_at)}</span>
               </button>
+              </div>
             )) : <p className="dim" style={{ fontSize: 13 }}>Nenhum relatório ainda.</p>}
           </section>
         </div>

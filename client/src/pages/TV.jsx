@@ -318,7 +318,7 @@ export default function TV() {
       <div style={{ width: W, height: H, transform: `scale(${scale})`, transformOrigin: 'top left', position: 'absolute', left: (window.innerWidth - W * scale) / 2, top: (window.innerHeight - H * scale) / 2, padding: '36px 48px 40px', boxSizing: 'border-box', color: '#ECECF1', display: 'flex', flexDirection: 'column', gap: 20 }}>
         <header style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', height: 78, flex: 'none' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 20 }}>
-            <BrandMark size={48} />
+            {me.org.logo ? <img src={me.org.logo} alt="" style={{ width: 56, height: 56, borderRadius: 14, objectFit: 'cover' }} /> : <BrandMark size={48} />}
             <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
               <span style={{ fontSize: 28, fontWeight: 600 }}>{me.org.name}</span>
               <span style={{ fontSize: 20, color: '#A6A6B0' }}>{current === 'insights' && data?.aiEnabled === false ? 'Destaques automáticos' : SCREEN_LABEL[current]}{current === 'ranking' && data?.ranking ? ` · ${data.ranking.label.split(' ')[0].toLowerCase()}, até hoje` : d && current !== 'insights' ? ` · ${d.label}` : ''}{device ? ` · ${device.name}` : ''}</span>

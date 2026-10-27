@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import { api } from '../api.js';
 import { useAuth } from '../auth.jsx';
 import { PageHead } from '../components/Layout.jsx';
-import { Icon, Spinner, ErrorBox, Switch, useAsync, useToast } from '../components/ui.jsx';
+import { Icon, Spinner, ErrorBox, Switch, Check, SelectBar, useSelection, useAsync, useToast } from '../components/ui.jsx';
 import { relTime, brl, brDate } from '../format.js';
 
 const SEV = { alta: ['Alta', 'err', '#F87171'], media: ['Média', 'warn', '#FBBF24'], info: ['Info', 'violet', '#B9A3FF'] };
@@ -156,6 +156,16 @@ export default function Alerts() {
     setList((l) => l.map((x) => (x.id === a.id ? { ...x, readAt: isRead ? new Date().toISOString() : null } : x)));
     try { await api(`/alerts/${a.id}/read`, { method: 'POST', body: { unread: !isRead } }); ping(); } catch (e) { toast('Erro', { kind: 'err', text: e.message }); }
   };
+  const selection = useSelection();
+  const remove = async (body, n) => {
+    if (!window.confirm(`Apagar ${n} alerta(s)? Eles só voltam se a situação se resolver e acontecer de novo.`)) return;
+    try {
+      const r = await api('/alerts/delete', { method: 'POST', body });
+      setList((l) => l.filter((a) => (body.ids ? !body.ids.includes(a.id) : !a.readAt)));
+      selection.clear(); ping();
+      toast(`${r.deleted} alerta(s) apagado(s)`);
+    } catch (e) { toast('Erro', { kind: 'err', text: e.message }); }
+  };
   const readAll = async () => {
     setList((l) => l.map((x) => ({ ...x, readAt: x.readAt || new Date().toISOString() })));
     try { await api('/alerts/read-all', { method: 'POST' }); ping(); } catch (e) { toast('Erro', { kind: 'err', text: e.message }); }
@@ -174,7 +184,16 @@ export default function Alerts() {
             {TABS.map(([k, l]) => <button key={k} role="tab" aria-selected={tab === k} onClick={() => setTab(k)}>{l} <span className="dim" style={{ fontSize: 12, marginLeft: 4 }}>{list.filter((a) => match(a, k)).length}</span></button>)}
           </div>
           {!q.data && !q.error && [0, 1, 2].map((i) => <div key={i} className="skel" style={{ height: 120, borderRadius: 12 }} />)}
-          {shown.map((a) => <AlertCard key={a.id} a={a} onRead={read} />)}
+          <SelectBar selection={selection} ids={shown.map((a) => a.id)}>
+            <button className="btn sm" onClick={() => remove({ scope: 'read' }, list.filter((a) => a.readAt).length)} disabled={!list.some((a) => a.readAt)}><Icon name="trash" size={14} />Apagar todos os lidos</button>
+            <button className="btn sm danger" onClick={() => remove({ ids: [...selection.sel] }, selection.size)}><Icon name="trash" size={14} />Apagar selecionados</button>
+          </SelectBar>
+          {shown.map((a) => (
+            <div key={a.id} style={{ display: 'flex', gap: 8, alignItems: 'flex-start' }}>
+              <span style={{ paddingTop: 14 }}><Check checked={selection.has(a.id)} onChange={(v) => selection.toggle(a.id, v)} label={`Selecionar ${a.title}`} /></span>
+              <div style={{ flex: 1, minWidth: 0 }}><AlertCard a={a} onRead={read} /></div>
+            </div>
+          ))}
           {q.data && !shown.length && (
             <div className="empty rise" style={{ padding: 32 }}>
               <span className="empty-icon"><Icon name="check" size={24} /></span>

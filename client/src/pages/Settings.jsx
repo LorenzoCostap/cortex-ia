@@ -8,6 +8,52 @@ import { initials } from '../format.js';
 const SCREENS = [['overview', 'Visão geral'], ['ranking', 'Ranking da equipe'], ['vendas', 'Vendas e produtos'], ['clientes', 'Clientes'], ['financeiro', 'Financeiro', 'contém valores sensíveis'], ['insights', 'Insights / destaques']];
 const secsLabel = (s) => { const m = Math.floor(s / 60), r = s % 60; return m === 0 ? `${s} s` : r ? `${m} min ${r} s` : `${m} min`; };
 
+// Reduz a imagem para 256×256 (corte central) antes de enviar: fica leve e quadrada
+function shrinkImage(file) {
+  return new Promise((resolve, reject) => {
+    if (!/^image\/(png|jpeg|webp)$/.test(file.type)) return reject(new Error('Use uma imagem PNG, JPG ou WebP.'));
+    if (file.size > 10e6) return reject(new Error('A imagem passa de 10 MB.'));
+    const img = new Image();
+    img.onload = () => {
+      const S = 256, side = Math.min(img.width, img.height);
+      const c = document.createElement('canvas'); c.width = c.height = S;
+      c.getContext('2d').drawImage(img, (img.width - side) / 2, (img.height - side) / 2, side, side, 0, 0, S, S);
+      URL.revokeObjectURL(img.src);
+      resolve(c.toDataURL(file.type === 'image/jpeg' ? 'image/jpeg' : 'image/png', 0.9));
+    };
+    img.onerror = () => reject(new Error('Não foi possível abrir a imagem.'));
+    img.src = URL.createObjectURL(file);
+  });
+}
+
+function OrgLogo({ name, logo, onChange }) {
+  const toast = useToast();
+  const { refresh } = useAuth();
+  const [busy, setBusy] = useState(false);
+  const save = async (dataUrl) => {
+    setBusy(true);
+    try { const r = await api('/org/logo', { method: 'PUT', body: { dataUrl } }); onChange(r.logo); await refresh(); toast(dataUrl ? 'Foto atualizada' : 'Foto removida'); }
+    catch (e) { toast('Não foi possível salvar a foto', { kind: 'err', text: e.message }); }
+    setBusy(false);
+  };
+  const pick = async (file) => { if (!file) return; try { await save(await shrinkImage(file)); } catch (e) { toast('Foto inválida', { kind: 'err', text: e.message }); } };
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+      {logo ? <img src={logo} alt="" style={{ width: 64, height: 64, borderRadius: 16, objectFit: 'cover', flex: 'none' }} />
+        : <span className="avatar sq" style={{ width: 64, height: 64, borderRadius: 16, fontSize: 22, flex: 'none' }}>{initials(name)}</span>}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          <label className="btn sm" style={{ position: 'relative', cursor: 'pointer' }}>{busy ? <Spinner /> : <Icon name="upload" size={14} />}{logo ? 'Trocar foto' : 'Enviar foto'}
+            <input type="file" accept="image/png,image/jpeg,image/webp" disabled={busy} onChange={(e) => { pick(e.target.files[0]); e.target.value = ''; }} style={{ position: 'absolute', inset: 0, opacity: 0, cursor: 'pointer' }} aria-label="Escolher foto da organização" />
+          </label>
+          {logo && <button type="button" className="btn sm ghost" style={{ color: 'var(--red-text)' }} disabled={busy} onClick={() => save(null)}>Remover</button>}
+        </div>
+        <span className="dim" style={{ fontSize: 12, lineHeight: 1.5 }}>PNG, JPG ou WebP, de preferência quadrada. Aparece no menu, no login e na TV.</span>
+      </div>
+    </div>
+  );
+}
+
 const slug = (t) => t.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 30) || 'tv';
 
 /** TVs com nome e telas próprias. Cada TV abre pelo link /tv?tela=<id>. */
@@ -53,10 +99,13 @@ export default function Settings() {
   const [orig, setOrig] = useState('');
   const [saving, setSaving] = useState(false);
   const [test, setTest] = useState(null);
+  const [logo, setLogo] = useState(null);
 
   useEffect(() => {
     if (!res.data) return;
-    const f = { org: { ...res.data.org, cnpj: res.data.org.cnpj || '', segment: res.data.org.segment || '' }, ai: res.data.settings.ai, tv: res.data.settings.tv, appearance: res.data.settings.appearance };
+    const { logo: lg, ...o } = res.data.org;
+    setLogo(lg || null);
+    const f = { org: { ...o, cnpj: o.cnpj || '', segment: o.segment || '' }, ai: res.data.settings.ai, tv: res.data.settings.tv, appearance: res.data.settings.appearance };
     setForm(f); setOrig(JSON.stringify(f));
   }, [res.data]);
 
@@ -89,8 +138,7 @@ export default function Settings() {
         <section className="card" aria-labelledby="org">
           <div><h2 id="org" className="card-title">Organização</h2><p className="card-sub">Aparece no login, nos relatórios e na TV.</p></div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
-            <span className="avatar sq" style={{ width: 56, height: 56, borderRadius: 14, fontSize: 20 }}>{initials(form.org.name)}</span>
-            <span className="muted" style={{ fontSize: 13, lineHeight: 1.5 }}>O identificador de login é o que as pessoas digitam no campo “Organização” ao entrar.</span>
+            <OrgLogo name={form.org.name} logo={logo} onChange={setLogo} />
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 14 }}>
             <label className="field">Nome fantasia<input className="input" value={form.org.name} onChange={set('org', 'name')} /></label>

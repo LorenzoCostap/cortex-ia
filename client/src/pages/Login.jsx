@@ -10,6 +10,7 @@ export default function Login() {
   const [params] = useSearchParams();
   const [form, setForm] = useState({ org: localStorage.getItem('cortex.org') || '', email: '', password: '', remember: true });
   const [orgName, setOrgName] = useState('');
+  const [orgLogo, setOrgLogo] = useState(null);
   const [aiOn, setAiOn] = useState(true);
   const [showPw, setShowPw] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -18,7 +19,7 @@ export default function Login() {
 
   const checkOrg = async () => {
     if (!form.org.trim()) return setOrgName('');
-    try { const o = await api(`/public/org?slug=${encodeURIComponent(form.org)}`); setOrgName(o.name); setAiOn(o.aiEnabled !== false); } catch { setOrgName(''); }
+    try { const o = await api(`/public/org?slug=${encodeURIComponent(form.org)}`); setOrgName(o.name); setOrgLogo(o.logo || null); setAiOn(o.aiEnabled !== false); } catch { setOrgName(''); setOrgLogo(null); }
   };
 
   const submit = async (e) => {
@@ -64,6 +65,7 @@ export default function Login() {
       <section style={{ flex: '1 1 440px', padding: '48px 24px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
         <form onSubmit={submit} className="rise" style={{ width: '100%', maxWidth: 400, display: 'flex', flexDirection: 'column', gap: 22 }} aria-labelledby="login-title" noValidate>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {orgLogo && <img src={orgLogo} alt={orgName} className="rise" style={{ width: 64, height: 64, borderRadius: 16, objectFit: 'cover', marginBottom: 6 }} />}
             <h2 id="login-title" style={{ fontSize: 28, fontWeight: 600 }}>Entrar</h2>
             <p className="muted" style={{ fontSize: 15 }}>{orgName ? <>Acesse o painel de <strong style={{ color: 'var(--text)' }}>{orgName}</strong>.</> : 'Acesse o painel da sua organização.'}</p>
           </div>

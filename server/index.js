@@ -31,10 +31,16 @@ const wrap = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).cat
 const org = (req) => req.user.org_id;
 
 /* ---------- Autenticação ---------- */
+function logoUrl(orgId) {
+  const o = db.prepare('SELECT slug, logo_at FROM organizations WHERE id = ?').get(orgId);
+  return o?.logo_at ? `/api/org/logo?slug=${encodeURIComponent(o.slug)}&v=${o.logo_at}` : null;
+}
+
 app.get('/api/public/org', (req, res) => {
   const o = db.prepare('SELECT name, segment FROM organizations WHERE slug = ?').get(String(req.query.slug || '').toLowerCase().trim());
   if (!o) return res.status(404).json({ error: 'Organização não encontrada.' });
-  res.json({ ...o, aiEnabled: getSettings(db.prepare('SELECT id FROM organizations WHERE slug = ?').get(String(req.query.slug || '').toLowerCase().trim()).id).ai.enabled !== false });
+  const id = db.prepare('SELECT id FROM organizations WHERE slug = ?').get(String(req.query.slug || '').toLowerCase().trim()).id;
+  res.json({ ...o, logo: logoUrl(id), aiEnabled: getSettings(id).ai.enabled !== false });
 });
 
 app.post('/api/auth/login', (req, res) => {
@@ -59,7 +65,7 @@ app.get('/api/auth/me', requireAuth, (req, res) => {
   const permissions = Object.fromEntries(MODULES.map((m) => [m, can(req.user, m)]));
   res.json({
     user: { id: req.user.id, name: req.user.name, email: req.user.email, role: req.user.role, mustChangePassword: !!req.user.must_change_password },
-    org: { slug: req.user.org_slug, name: req.user.org_name, segment: req.user.org_segment, isDemo: !!req.user.is_demo },
+    org: { slug: req.user.org_slug, name: req.user.org_name, segment: req.user.org_segment, isDemo: !!req.user.is_demo, logo: logoUrl(org(req)) },
     permissions, tv: s.tv, appearance: s.appearance, showTools: s.ai.showTools, today: todayStr(), refMonth: refMonth(), aiEnabled: s.ai.enabled !== false
   });
 });
@@ -177,6 +183,20 @@ app.delete('/api/reports/:id', requirePerm('relatorios'), (req, res) => {
   db.prepare('DELETE FROM reports WHERE org_id = ? AND id = ?').run(org(req), +req.params.id);
   res.json({ ok: true });
 });
+const idList = (a) => (Array.isArray(a) ? a.map(Number).filter(Number.isInteger).slice(0, 5000) : []);
+const inList = (ids) => ids.map(() => '?').join(',');
+const days = (v) => Math.min(3650, Math.max(1, +v || 90));
+
+// Apagar vários relatórios (selecionados ou mais antigos que N dias)
+app.post('/api/reports/delete', requirePerm('relatorios'), (req, res) => {
+  const ids = idList(req.body?.ids);
+  const r = ids.length
+    ? db.prepare(`DELETE FROM reports WHERE org_id = ? AND id IN (${inList(ids)})`).run(org(req), ...ids)
+    : req.body?.olderThanDays ? db.prepare("DELETE FROM reports WHERE org_id = ? AND created_at < datetime('now', ?)").run(org(req), `-${days(req.body.olderThanDays)} days`) : { changes: 0 };
+  if (r.changes) logEvent(org(req), req.user.id, 'report', `${r.changes} relatório(s) apagado(s)`);
+  res.json({ deleted: r.changes });
+});
+
 app.put('/api/reports/schedules', requirePerm('relatorios'), (req, res) => {
   const s = req.body || {};
   const clean = {};
@@ -203,9 +223,44 @@ app.get('/api/history', requirePerm('historico'), (req, res) => {
   res.json({ events: rows.map((r) => ({ ...r, meta: r.meta_json ? JSON.parse(r.meta_json) : null, meta_json: undefined })), counts, users, failedLogins7d: failed });
 });
 
+// Apagar histórico: só administradores; login e permissões (auditoria) nunca são apagados
+const PROTECTED_KINDS = ['auth', 'admin'];
+app.post('/api/history/delete', requirePerm('historico'), (req, res) => {
+  if (req.user.role !== 'admin') return res.status(403).json({ error: 'Só administradores podem apagar o histórico.' });
+  const ids = idList(req.body?.ids);
+  const keep = `AND kind NOT IN (${inList(PROTECTED_KINDS)})`;
+  const r = ids.length
+    ? db.prepare(`DELETE FROM events WHERE org_id = ? AND id IN (${inList(ids)}) ${keep}`).run(org(req), ...ids, ...PROTECTED_KINDS)
+    : req.body?.olderThanDays ? db.prepare(`DELETE FROM events WHERE org_id = ? AND created_at < datetime('now', ?) ${keep}`).run(org(req), `-${days(req.body.olderThanDays)} days`, ...PROTECTED_KINDS) : { changes: 0 };
+  if (r.changes) logEvent(org(req), req.user.id, 'admin', `${r.changes} registro(s) do histórico apagado(s)`, 'ok', req.body?.olderThanDays && !ids.length ? { maisAntigosQue: `${days(req.body.olderThanDays)} dias` } : null);
+  res.json({ deleted: r.changes });
+});
+
+/* ---------- Foto da organização ---------- */
+app.get('/api/org/logo', (req, res) => {
+  const o = db.prepare('SELECT logo FROM organizations WHERE slug = ?').get(String(req.query.slug || '').toLowerCase().trim());
+  const m = o?.logo && /^data:(image\/(?:png|jpeg|webp));base64,(.+)$/.exec(o.logo);
+  if (!m) return res.status(404).end();
+  res.set('Content-Type', m[1]).set('Cache-Control', 'public, max-age=31536000, immutable').send(Buffer.from(m[2], 'base64'));
+});
+app.put('/api/org/logo', requirePerm('configuracoes'), (req, res) => {
+  const url = req.body?.dataUrl;
+  if (url === null) {
+    db.prepare('UPDATE organizations SET logo = NULL, logo_at = NULL WHERE id = ?').run(org(req));
+    logEvent(org(req), req.user.id, 'config', 'Foto da organização removida');
+    return res.json({ logo: null });
+  }
+  const m = /^data:image\/(png|jpeg|webp);base64,([A-Za-z0-9+/=]+)$/.exec(String(url || ''));
+  if (!m) return res.status(400).json({ error: 'Envie uma imagem PNG, JPG ou WebP.' });
+  if (m[2].length > 700e3) return res.status(400).json({ error: 'Imagem grande demais.' });
+  db.prepare("UPDATE organizations SET logo = ?, logo_at = strftime('%s','now') WHERE id = ?").run(url, org(req));
+  logEvent(org(req), req.user.id, 'config', 'Foto da organização alterada');
+  res.json({ logo: logoUrl(org(req)) });
+});
+
 /* ---------- Configurações ---------- */
 app.get('/api/settings', requirePerm('configuracoes'), (req, res) => {
-  const o = db.prepare('SELECT slug, name, segment, cnpj FROM organizations WHERE id = ?').get(org(req));
+  const o = { ...db.prepare('SELECT slug, name, segment, cnpj FROM organizations WHERE id = ?').get(org(req)), logo: logoUrl(org(req)) };
   const settings = getSettings(org(req));
   settings.email = { ...settings.email, appPassword: settings.email.appPassword ? '••••' : '' }; // a senha de app nunca sai do servidor
   res.json({ org: o, settings });
@@ -488,6 +543,14 @@ app.post('/api/alerts/:id/read', requirePerm('alertas'), (req, res) => {
   db.prepare("UPDATE alerts SET read_at = CASE WHEN ? THEN NULL ELSE datetime('now') END WHERE id = ? AND org_id = ?").run(req.body?.unread ? 1 : 0, +req.params.id, org(req));
   res.json({ ok: true });
 });
+// Apagar alertas: some da lista; volta só se a situação se resolver e acontecer de novo
+app.post('/api/alerts/delete', requirePerm('alertas'), (req, res) => {
+  const ids = idList(req.body?.ids);
+  const r = ids.length
+    ? db.prepare(`UPDATE alerts SET dismissed_at = datetime('now') WHERE org_id = ? AND id IN (${inList(ids)})`).run(org(req), ...ids)
+    : req.body?.scope === 'read' ? db.prepare("UPDATE alerts SET dismissed_at = datetime('now') WHERE org_id = ? AND read_at IS NOT NULL AND dismissed_at IS NULL").run(org(req)) : { changes: 0 };
+  res.json({ deleted: r.changes, unread: unreadCount(org(req)) });
+});
 app.put('/api/alerts/config', requirePerm('configuracoes'), (req, res) => {
   const b = req.body || {};
   const rules = Object.fromEntries(RULES.map((r) => [r.key, b.rules?.[r.key] !== false]));
@@ -559,8 +622,28 @@ app.post('/api/bills/:id/pay', requirePerm('fluxo'), (req, res) => {
 
 /* ---------- Dados ---------- */
 app.get('/api/data/status', requireAuth, (req, res) => {
-  const c = (t) => db.prepare(`SELECT COUNT(*) n FROM ${t} WHERE org_id = ?`).get(org(req)).n;
-  res.json({ isDemo: !!req.user.is_demo, orders: c('orders'), customers: c('customers'), products: c('products'), expenses: c('expenses') });
+  const o = org(req);
+  const c = (t) => db.prepare(`SELECT COUNT(*) n FROM ${t} WHERE org_id = ?`).get(o).n;
+  const range = (sql) => db.prepare(sql).get(o) || {};
+  // último arquivo importado de cada tipo (registrado no histórico de importações)
+  const lastImport = (type) => {
+    const e = db.prepare("SELECT title, created_at FROM events WHERE org_id = ? AND kind = 'import' AND status = 'ok' AND meta_json LIKE ? ORDER BY id DESC LIMIT 1").get(o, `%"type":"${type}"%`);
+    return e ? { file: e.title.split(':')[0].replace(/^Pasta monitorada · /, ''), at: e.created_at } : null;
+  };
+  const s = range('SELECT COUNT(*) n, MIN(date) "from", MAX(date) "to" FROM orders WHERE org_id = ?');
+  const d = range('SELECT COUNT(*) n, MIN(date) "from", MAX(date) "to" FROM expenses WHERE org_id = ?');
+  const b = range('SELECT COUNT(*) n, MIN(due_date) "from", MAX(due_date) "to" FROM bills WHERE org_id = ?');
+  const g = range(`SELECT COUNT(*) n, MIN(month) "from", MAX(month) "to" FROM (SELECT month FROM goals WHERE org_id = ${o} UNION ALL SELECT month FROM goal_items WHERE org_id = ?)`);
+  const stale = s.to && (Date.now() - new Date(s.to + 'T12:00:00').getTime()) / 864e5 > 7;
+  res.json({
+    isDemo: !!req.user.is_demo, orders: s.n, customers: c('customers'), products: c('products'), expenses: d.n,
+    types: {
+      vendas: { count: db.prepare('SELECT COUNT(*) n FROM order_items i JOIN orders r ON r.id = i.order_id WHERE r.org_id = ?').get(o).n, orders: s.n, from: s.from, to: s.to, stale: !!stale, last: lastImport('vendas') },
+      despesas: { count: d.n, from: d.from, to: d.to, last: lastImport('despesas') },
+      contas: { count: b.n, from: b.from, to: b.to, last: lastImport('contas') },
+      metas: { count: g.n, from: g.from, to: g.to, last: lastImport('metas') }
+    }
+  });
 });
 
 app.post('/api/data/reset-demo', requirePerm('importacao'), wrap(async (req, res) => {

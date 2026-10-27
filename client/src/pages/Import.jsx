@@ -385,7 +385,56 @@ function Wizard({ isDemo, onDone }) {
   );
 }
 
-function WatchCard() {
+const TYPE_HINT = {
+  vendas: 'Sem ela não há faturamento, clientes nem produtos',
+  despesas: 'Sem ela, lucro e fluxo de caixa ficam incompletos',
+  contas: 'Usada no fluxo de caixa e nos alertas de vencimento',
+  metas: 'Usada nas metas, na equipe e na previsão do mês'
+};
+const monthLabel = (m) => (m ? `${m.slice(5, 7)}/${m.slice(0, 4)}` : '');
+
+function DataStatus({ st }) {
+  if (st.error) return <ErrorBox error={st.error} />;
+  if (!st.data) return <div className="skel" style={{ height: 220 }} />;
+  const T = st.data.types || {};
+  const demo = st.data.isDemo;
+  const done = Object.values(T).filter((t) => t.count > 0).length;
+  return (
+    <>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 8 }}>
+        <h2 id="base" className="card-title">Dados da empresa</h2>
+        <span className="dim" style={{ fontSize: 12 }}>{demo ? 'demonstração' : `${done} de 4 completos`}</span>
+      </div>
+      <div style={{ height: 6, borderRadius: 99, background: 'var(--card-3)', overflow: 'hidden' }}><div style={{ width: `${demo ? 0 : done * 25}%`, height: '100%', background: 'var(--violet)', transition: 'width .4s' }} /></div>
+      <ul style={{ listStyle: 'none', margin: 0, padding: 0 }}>
+        {Object.keys(TYPE_LABEL).map((k) => {
+          const t = T[k] || {};
+          const has = t.count > 0;
+          const period = k === 'metas' ? (t.from === t.to ? monthLabel(t.from) : `${monthLabel(t.from)} a ${monthLabel(t.to)}`) : t.from ? `${brDate(t.from)} a ${brDate(t.to)}` : '';
+          const amount = k === 'vendas' ? `${num(t.count)} linhas · ${num(t.orders)} pedidos` : k === 'metas' ? `${num(t.count)} metas` : `${num(t.count)} lançamentos`;
+          return (
+            <li key={k} style={{ display: 'flex', gap: 12, alignItems: 'flex-start', padding: '12px 0', borderTop: '1px solid var(--line)' }}>
+              <span style={{ width: 22, height: 22, borderRadius: '50%', flex: 'none', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', marginTop: 1, background: has ? 'var(--green-bg)' : 'var(--amber-bg)', border: has ? 0 : '1px solid var(--amber-line)', color: 'var(--amber-text)', fontWeight: 700, fontSize: 13 }}>
+                {has ? <Icon name="check" size={12} color="var(--green)" width={3} /> : '!'}
+              </span>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'center' }}>
+                  <strong style={{ fontSize: 14, fontWeight: 500 }}>{TYPE_LABEL[k]}</strong>
+                  {has ? (demo ? <span className="badge demo">Demonstração</span> : t.stale ? <span className="badge demo">Desatualizado</span> : <span className="badge ok">Em dia</span>)
+                    : <button className="btn sm" onClick={() => download(k)}><Icon name="download" size={14} color="var(--muted)" />Modelo</button>}
+                </div>
+                <div className="muted" style={{ fontSize: 13, marginTop: 2 }}>{has ? `${amount}${period ? ` · ${period}` : ''}` : 'Nenhum arquivo enviado'}</div>
+                <div className="dim" style={{ fontSize: 12, marginTop: 2 }}>{has ? (t.last ? `Último arquivo: ${t.last.file} · ${relTime(t.last.at)}` : demo ? 'Dados fictícios' : '') : TYPE_HINT[k]}</div>
+              </div>
+            </li>
+          );
+        })}
+      </ul>
+    </>
+  );
+}
+
+function WatchCard({ onImported }) {
   const toast = useToast();
   const w = useAsync(() => api('/import/watch'), []);
   const [form, setForm] = useState(null);
@@ -405,7 +454,7 @@ function WatchCard() {
       const r = await api('/import/watch/scan', { method: 'POST' });
       const n = (r.results || []).filter((x) => x.inserted).length;
       toast(r.error ? 'Pasta não encontrada' : n ? `${n} arquivo(s) importado(s)` : 'Nenhum arquivo novo', { kind: r.error ? 'err' : n ? 'ok' : 'info' });
-      w.reload();
+      w.reload(); if (n) onImported?.();
     } catch (e) { toast('Erro', { kind: 'err', text: e.message }); }
     setBusy(false);
   };
@@ -427,15 +476,37 @@ function WatchCard() {
           {[[15, '15 minutos'], [30, '30 minutos'], [60, '1 hora'], [180, '3 horas'], [720, '12 horas'], [1440, '1 dia']].map(([v, l]) => <option key={v} value={v}>{l}</option>)}
         </select>
       </label>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 6, fontSize: 13 }}>
-        {(w.data?.last || []).slice(0, 4).map((f, i) => (
-          <span key={i} style={{ display: 'flex', justifyContent: 'space-between', gap: 10 }}>
-            <span className="mono" style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 12 }} title={f.path}>{f.path.split(/[\\/]/).pop()}</span>
-            <span style={{ color: f.status === 'ok' ? 'var(--green-text)' : 'var(--red-text)', whiteSpace: 'nowrap' }}>{f.status === 'ok' ? `${num(f.rows)} linhas · ${relTime(f.created_at)}` : f.message}</span>
-          </span>
-        ))}
-        {!w.data?.last?.length && <span className="dim">Nenhum arquivo importado da pasta ainda.</span>}
-      </div>
+      {w.data?.files ? (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap', fontSize: 13 }}>
+            <span className="muted">{w.data.files.length ? `${w.data.files.length} arquivo(s) na pasta` : 'A pasta está vazia'}</span>
+            {w.data.nextScanAt && <span className="dim">próxima leitura às {new Date(w.data.nextScanAt).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</span>}
+          </div>
+          {w.data.files.length > 0 && (
+            <div className="table-wrap">
+              <table className="table" style={{ minWidth: 460 }}>
+                <thead><tr><th>Arquivo</th><th>Conteúdo</th><th>Situação</th></tr></thead>
+                <tbody>
+                  {w.data.files.map((f) => (
+                    <tr key={f.name}>
+                      <td><span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}><Icon name="file" size={15} color="var(--muted)" /><span className="mono" style={{ fontSize: 12 }}>{f.name}</span></span></td>
+                      <td className="muted">{f.type === 'varias' ? 'Várias abas' : TYPE_LABEL[f.type]?.split(' ')[0] || '—'}</td>
+                      <td style={{ fontSize: 13 }}>
+                        {f.status === 'ok' && <span style={{ color: 'var(--green-text)', whiteSpace: 'nowrap' }}>✓ Importado <span className="dim">· {relTime(f.at)} · {num(f.rows)} linhas</span></span>}
+                        {f.status === 'erro' && <span style={{ color: 'var(--red-text)' }} title="Envie este arquivo pelo quadro acima para ajustar as colunas">⚠ {f.message}</span>}
+                        {f.status === 'novo' && <span style={{ color: 'var(--violet-text)', whiteSpace: 'nowrap' }}>● Novo <span className="dim">· será lido na próxima verificação</span></span>}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+          {w.data.files.some((f) => f.status === 'erro') && <p className="dim" style={{ fontSize: 12, margin: 0 }}>Arquivo com erro: envie ele pelo quadro de importação acima para ajustar as colunas.</p>}
+        </div>
+      ) : form.path && w.data && !w.data.folderFound ? (
+        <div className="alert warn"><Icon name="alert" color="var(--amber)" /><span>Pasta não encontrada neste computador.</span></div>
+      ) : <span className="dim" style={{ fontSize: 13 }}>Escolha uma pasta para ver os arquivos dela aqui.</span>}
       <p className="dim" style={{ fontSize: 12, lineHeight: 1.5 }}>Arquivos .xlsx e .csv novos ou alterados são importados como “adicionar” (pedidos repetidos são ignorados). Se ainda houver dados de demonstração, o primeiro arquivo os substitui.</p>
       <button className="btn sm" style={{ alignSelf: 'flex-start' }} onClick={scan} disabled={busy || !form.enabled || !form.path}>{busy ? <Spinner /> : <Icon name="refresh" size={14} />}Verificar agora</button>
     </section>
@@ -535,7 +606,10 @@ export default function Import() {
 
       <div className="row" style={{ alignItems: 'flex-start' }}>
         <div style={{ flex: '2 1 560px', minWidth: 0 }}>
-          <Wizard isDemo={me.org.isDemo} onDone={() => { st.reload(); refresh(); }} />
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+            <Wizard isDemo={me.org.isDemo} onDone={() => { st.reload(); refresh(); }} />
+            <WatchCard onImported={() => { st.reload(); refresh(); }} />
+          </div>
         </div>
         <div style={{ flex: '1 1 300px', minWidth: 0, display: 'flex', flexDirection: 'column', gap: 16 }}>
           <section className="card tight" aria-labelledby="mod">
@@ -544,24 +618,11 @@ export default function Import() {
             <div className="toolbar" style={{ gap: 8 }}>{Object.keys(TEMPLATES).map((t) => <button key={t} className="btn sm" onClick={() => download(t)}><Icon name="download" size={14} color="var(--muted)" />{TYPE_LABEL[t].split(' ')[0]}</button>)}</div>
           </section>
           <section className="card tight" aria-labelledby="base">
-            <h2 id="base" className="card-title">Base atual</h2>
-            {st.error ? <ErrorBox error={st.error} /> : !st.data ? <div className="skel" style={{ height: 100 }} /> : (
-              <dl style={{ margin: 0, display: 'grid', gridTemplateColumns: '1fr auto', gap: '10px 14px', fontSize: 14 }}>
-                <dt className="muted">Pedidos</dt><dd className="mono" style={{ margin: 0 }}>{num(st.data.orders)}</dd>
-                <dt className="muted">Clientes</dt><dd className="mono" style={{ margin: 0 }}>{num(st.data.customers)}</dd>
-                <dt className="muted">Produtos</dt><dd className="mono" style={{ margin: 0 }}>{num(st.data.products)}</dd>
-                <dt className="muted">Despesas</dt><dd className="mono" style={{ margin: 0 }}>{num(st.data.expenses)}</dd>
-                <dt className="muted">Origem</dt><dd style={{ margin: 0, color: st.data.isDemo ? 'var(--amber-text)' : 'var(--green-text)' }}>{st.data.isDemo ? 'Demonstração' : 'Importada'}</dd>
-              </dl>
-            )}
+            <DataStatus st={st} />
             <button className="btn sm" style={{ alignSelf: 'flex-start' }} onClick={() => setConfirm(true)}><Icon name="refresh" size={14} color="var(--muted)" />Voltar aos dados de demonstração</button>
           </section>
+          <BackupCard />
         </div>
-      </div>
-
-      <div className="grid-2">
-        <WatchCard />
-        <BackupCard />
       </div>
 
       {confirm && (

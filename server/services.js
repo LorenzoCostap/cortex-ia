@@ -176,7 +176,7 @@ export async function scanWatchFolder(orgId, { force = false } = {}) {
   }
   const files = fs.readdirSync(w.path).filter((f) => /\.(csv|xlsx)$/i.test(f) && !f.startsWith('~$'));
   const seen = db.prepare('SELECT 1 FROM imported_files WHERE org_id = ? AND path = ? AND mtime = ?');
-  const rec = db.prepare('INSERT OR IGNORE INTO imported_files (org_id, path, mtime, status, rows, message) VALUES (?, ?, ?, ?, ?, ?)');
+  const rec = db.prepare('INSERT OR IGNORE INTO imported_files (org_id, path, mtime, status, rows, message, type) VALUES (?, ?, ?, ?, ?, ?, ?)');
   const results = [];
   for (const f of files.sort()) {
     const full = path.join(w.path, f);
@@ -188,7 +188,7 @@ export async function scanWatchFolder(orgId, { force = false } = {}) {
         const all = importAll(orgId, null, parsed.sheets, { filename: `Pasta monitorada · ${f}` });
         const inserted = all.results.reduce((n, r) => n + (r.inserted || 0), 0);
         if (!inserted) throw new Error('Nenhuma linha válida nas abas.');
-        rec.run(orgId, full, mtime, 'ok', inserted, all.results.map((r) => `${r.sheet}: ${r.inserted}`).join(' · '));
+        rec.run(orgId, full, mtime, 'ok', inserted, all.results.map((r) => `${r.sheet}: ${r.inserted}`).join(' · '), 'varias');
         results.push({ file: f, type: 'varias', inserted });
         continue;
       }
@@ -197,10 +197,10 @@ export async function scanWatchFolder(orgId, { force = false } = {}) {
       if (v.missing.length) throw new Error(`Colunas obrigatórias não encontradas: ${v.missing.join(', ')}`);
       if (!v.valid.length) throw new Error('Nenhuma linha válida.');
       const r = commit(orgId, null, type, v.valid, { mode: 'append', filename: `Pasta monitorada · ${f}` });
-      rec.run(orgId, full, mtime, 'ok', r.inserted, v.errorCount ? `${v.errorCount} linha(s) com erro ignorada(s)` : null);
+      rec.run(orgId, full, mtime, 'ok', r.inserted, v.errorCount ? `${v.errorCount} linha(s) com erro ignorada(s)` : null, type);
       results.push({ file: f, type, ...r, errors: v.errorCount });
     } catch (e) {
-      rec.run(orgId, full, mtime, 'erro', 0, e.message);
+      rec.run(orgId, full, mtime, 'erro', 0, e.message, null);
       logEvent(orgId, null, 'import', `Pasta monitorada · ${f}: ${e.message}`, 'erro');
       results.push({ file: f, error: e.message });
     }
@@ -211,7 +211,26 @@ export async function scanWatchFolder(orgId, { force = false } = {}) {
 
 export function watchStatus(orgId) {
   const rows = db.prepare('SELECT path, status, rows, message, created_at FROM imported_files WHERE org_id = ? ORDER BY id DESC LIMIT 8').all(orgId);
-  return { last: rows, lastScanAt: lastScan.get(orgId) ? new Date(lastScan.get(orgId)).toISOString() : null };
+  const w = getSettings(orgId).import.watch;
+  const at = lastScan.get(orgId);
+  // Arquivos que estão na pasta agora, com a situação de cada um
+  let files = null;
+  if (w?.path && fs.existsSync(w.path)) {
+    const last = db.prepare('SELECT mtime, status, rows, message, type, created_at FROM imported_files WHERE org_id = ? AND path = ? ORDER BY id DESC LIMIT 1');
+    try {
+      files = fs.readdirSync(w.path).filter((f) => /\.(csv|xlsx)$/i.test(f) && !f.startsWith('~$')).sort().slice(0, 50).map((f) => {
+        const full = path.join(w.path, f);
+        const mtime = Math.round(fs.statSync(full).mtimeMs);
+        const r = last.get(orgId, full);
+        return r && r.mtime === mtime ? { name: f, status: r.status, rows: r.rows, message: r.message, type: r.type, at: r.created_at } : { name: f, status: 'novo' };
+      });
+    } catch { files = null; }
+  }
+  return {
+    last: rows, files, folderFound: !w?.path || fs.existsSync(w.path),
+    lastScanAt: at ? new Date(at).toISOString() : null,
+    nextScanAt: w?.enabled && w?.path ? new Date((at || Date.now()) + (w.intervalMin || 60) * 60e3).toISOString() : null
+  };
 }
 
 /* ---------------- Backup agendado ---------------- */
