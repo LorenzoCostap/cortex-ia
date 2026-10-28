@@ -17,7 +17,7 @@ const pctChange = (a, b) => (b ? r2(((a - b) / b) * 100) : null);
  */
 export function operatingExpenses(org, from, to) {
   let total = 0;
-  const q = db.prepare(`SELECT COALESCE(SUM(amount),0) v FROM ${U('expenses')} WHERE org_id = ? AND date BETWEEN ? AND ?`);
+  const q = db.prepare(`SELECT COALESCE(SUM(amount),0) v FROM ${U('expenses')} WHERE org_id = ? AND in_profit = 1 AND date BETWEEN ? AND ?`);
   for (let m = monthStart(from); m <= to; m = addMonths(m, 1)) {
     const ms = m, me = monthEnd(m);
     const a = from > ms ? from : ms, b = to < me ? to : me;

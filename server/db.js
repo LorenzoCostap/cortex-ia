@@ -167,7 +167,8 @@ addColumn('orders', 'unit', 'TEXT');
 addColumn('expenses', 'unit', 'TEXT');
 addColumn('bills', 'unit', 'TEXT');
 addColumn('bills', 'external_id', 'TEXT');
-addColumn('order_items', 'cost_src', 'TEXT');      // arquivo | estoque | estoque-estimado | margem
+addColumn('order_items', 'cost_src', 'TEXT');
+addColumn('expenses', 'in_profit', 'INTEGER NOT NULL DEFAULT 1'); // 0 = despesa gravada, mas fora do cálculo do lucro      // arquivo | estoque | estoque-estimado | margem
 db.exec(`CREATE TABLE IF NOT EXISTS stock (
   org_id INTEGER NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
   unit TEXT NOT NULL DEFAULT '',

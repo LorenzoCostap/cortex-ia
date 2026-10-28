@@ -16,7 +16,7 @@ import { ask, ollamaStatus, ollamaSpeed } from './ai.js';
 import { QUESTIONS } from './answers.js';
 import { subscribe, broadcast, tvCount, refreshInsights, getInsights, buildReport, saveReport, REPORT_TYPES, startScheduler, scanWatchFolder, watchStatus } from './services.js';
 import { TYPES, readFile, detectType, autoMap, validate, commit, importAll, stash, unstash, drop } from './importer.js';
-import { commitSentus } from './sentus.js';
+import { commitSentus, rememberedUnit } from './sentus.js';
 import { runBackup, listBackups, restoreBackup, defaultBackupDir } from './backup.js';
 import { seedDemo, generateDemoData } from './seed.js';
 import { isIso, refMonth, monthStart, monthEnd, todayStr, addMonths } from './dates.js';
@@ -373,7 +373,7 @@ app.post('/api/import/preview', requirePerm('importacao'), wrap(async (req, res)
   try { parsed = await readFile(req.body, filename); } catch (e) { return res.status(400).json({ error: e.message }); }
   if (parsed.sentus) { // relatório do SENTUS: prévia própria (sem mapeamento de colunas)
     const { rows, ...info } = parsed.sentus;
-    return res.json({ token: stash(org(req), filename, parsed), filename, sentus: info, rowCount: rows.length });
+    return res.json({ token: stash(org(req), filename, parsed), filename, sentus: { ...info, suggestedUnit: rememberedUnit(org(req), info.summary.empresa) }, rowCount: rows.length });
   }
   const type = detectType(parsed.headers);
   const token = stash(org(req), filename, parsed);
@@ -409,7 +409,7 @@ app.post('/api/import/sentus', requirePerm('importacao'), (req, res) => {
   try {
     const p = unstash(org(req), req.body?.token);
     if (!p.sentus) return res.status(400).json({ error: 'Este arquivo não é um relatório do SENTUS.' });
-    const r = commitSentus(org(req), req.user.id, p.sentus, { unit: req.body.unit, titleKind: req.body.titleKind, year: req.body.year, filename: p.filename });
+    const r = commitSentus(org(req), req.user.id, p.sentus, { unit: req.body.unit, titleKind: req.body.titleKind, year: req.body.year, ungrouped: req.body.ungrouped, filename: p.filename });
     drop(req.body.token);
     refreshInsights(org(req), { force: true }).catch(() => {});
     try { refreshAlerts(org(req)); } catch { /* alertas são recalculados depois pelo agendador */ }

@@ -47,13 +47,13 @@ test('vendas por item + títulos: totais batem no dashboard, separados e somados
     item('7/2', '02/09/2026', 'Pedido', 'CLIENTE B', '100', 'CAMISETA', 1, 50, EMP, 'Encerrado'),
     item('8/2', '02/09/2026', 'Pedido', 'CLIENTE C', '100', 'CAMISETA', 9, 50, EMP, 'Autorizado') // virou NFC-e: não conta
   ]), 'Report_26M.csv');
-  assert.equal(matriz.sentus.summary.unit, 'matriz');
-  const r1 = S.commitSentus(org, null, matriz.sentus, {});
+  assert.equal(matriz.sentus.summary.empresa, EMP);
+  const r1 = S.commitSentus(org, null, matriz.sentus, { unit: 'matriz' });
   assert.equal(r1.inserted, 3);
   assert.ok(r1.notes.some((n) => /estoque/.test(n)));
   const filial = await I.readFile(csv([item('5/3', '03/09/2026', 'NFC-e', FIL, '100', 'CAMISETA', 4, 50, FIL)]), 'Report_26M.csv');
-  assert.equal(filial.sentus.summary.unit, 'filial');
-  S.commitSentus(org, null, filial.sentus, {});
+  S.commitSentus(org, null, filial.sentus, { unit: 'filial' });
+  assert.equal(S.rememberedUnit(org, FIL), 'filial'); // na próxima vez já vem selecionada
   const tit = await I.readFile(csv([
     ['FORNECEDOR A - 11222333000144', '10-1/2', '01/09/2026', '20/12/2026', 'null', '300.00', 'null', '300.00', '900', 'null'],
     ['FORNECEDOR A - 11222333000144', '10-2/2', '01/09/2026', '20/09/2026', '20/09/2026', '300.00', '300.00', '0.00', '901', '300.0000'],
@@ -71,8 +71,37 @@ test('vendas por item + títulos: totais batem no dashboard, separados e somados
   assert.equal(open.length, 1); // a parcela paga não fica em aberto
   assert.equal(open[0].amount, 300);
   // importar de novo não duplica
-  S.commitSentus(org, null, matriz.sentus, {});
+  S.commitSentus(org, null, matriz.sentus, { unit: 'matriz' });
   S.commitSentus(org, null, tit.sentus, { unit: 'matriz', titleKind: 'pagar' });
   assert.equal(rev(null), 380);
   assert.equal(db.prepare("SELECT COUNT(*) n FROM bills WHERE org_id = ? AND kind = 'pagar'").get(org).n, 2);
+});
+
+test('linhas quebradas, desconto do 80M, título pago em parte e despesa sem grupo fora do lucro', async () => {
+  // registro com observação quebrada em 3 linhas (como a chave da NF-e)
+  const broken = item('9/1', '10/09/2026', 'NFe', 'CLIENTE D', '100', 'CAMISETA', 10, 50);
+  const text = [item('8/1', '10/09/2026', 'NFC-e', EMP, '100', 'CAMISETA', 1, 50).join(';'),
+    broken.slice(0, 12).join(';').replace(/;$/, ';Origem: 1'), '42240300000000000000550010000000091000000000', 'fim da observação' + ';' + broken.slice(12).join(';')].join('\r\n');
+  const it = await I.readFile(Buffer.from(text + '\r\n'), 'Report_26M.csv');
+  assert.equal(it.sentus.rows.length, 2);
+  S.commitSentus(org, null, it.sentus, { unit: 'filial' });
+  const per = await I.readFile(csv([['8/1', '10/09/2026', 'NFC-e', EMP, '50.00', '0.00', '50.00', '50.00'], ['9/1', '10/09/2026', 'NFe', 'CLIENTE D', '500.00', '60.00', '440.00', '500.00']]), 'Report_80M.csv');
+  const r = S.commitSentus(org, null, per.sentus, { unit: 'filial' });
+  assert.ok(r.notes.some((n) => /Desconto aplicado em 1 nota/.test(n)));
+  const rev = asUnit('filial', () => M.periodSummary(org, '2026-09-10', '2026-09-10').revenue);
+  assert.equal(rev, 490); // 50 + (500 - 60)
+  S.commitSentus(org, null, per.sentus, { unit: 'filial' }); // de novo: não desconta duas vezes
+  assert.equal(asUnit('filial', () => M.periodSummary(org, '2026-09-10', '2026-09-10').revenue), 490);
+
+  const tit = await I.readFile(csv([['FORNECEDOR B - 11222333000155', '20-1/1', '01/09/2026', '15/09/2026', '10/09/2026', '1000.00', '400.00', '600.00', '950', '400.0000']]), 'Report_6M.csv');
+  S.commitSentus(org, null, tit.sentus, { unit: 'filial', titleKind: 'pagar' });
+  const b = db.prepare("SELECT amount, paid_at FROM bills WHERE org_id = ? AND external_id = '950'").get(org);
+  assert.deepEqual(b, { amount: 600, paid_at: null }); // pago em parte: em aberto pelo saldo
+
+  const gr = await I.readFile(csv([['DESPESAS', '', ...Array(13).fill('0.00')],
+    ['', 'NAO CLASSIFICADO', '0.00', '0.00', '0.00', '0.00', '0.00', '0.00', '0.00', '0.00', '-900.00', '0.00', '0.00', '0.00', '-900.00'],
+    ['', 'LUZ', '0.00', '0.00', '0.00', '0.00', '0.00', '0.00', '0.00', '0.00', '-100.00', '0.00', '0.00', '0.00', '-100.00'],
+    ['', '==TOTAL DESPESAS==', ...Array(13).fill('null')]]), 'Report_126M.csv');
+  S.commitSentus(org, null, gr.sentus, { unit: 'filial', year: 2026, ungrouped: 'fora' });
+  assert.equal(asUnit('filial', () => M.periodSummary(org, '2026-09-01', '2026-09-30').opex), 100); // só a luz entra no lucro
 });

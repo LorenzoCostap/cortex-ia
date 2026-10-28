@@ -1,13 +1,13 @@
 // Relatórios do ERP SENTUS exportados em CSV (sem cabeçalho, separados por ";", ponto decimal e "null" no vazio).
 // Cada relatório é reconhecido pela estrutura das linhas e gravado nas tabelas que o Cortex já usa.
-import { db, logEvent } from './db.js';
+import { db, logEvent, getSettings, saveSettings } from './db.js';
 import { clearOrgData } from './seed.js';
 import { clearProductCache } from './metrics.js';
 import { isIso } from './dates.js';
 
 export const SENTUS = {
   itens: { label: 'Vendas por item', code: '26M', type: 'vendas' },
-  periodo: { label: 'Vendas por período', code: '80M', type: 'conferencia' },
+  periodo: { label: 'Vendas por período (descontos)', code: '80M', type: 'conferencia' },
   titulos: { label: 'Títulos por vencimento', code: '6M', type: 'contas' },
   estoque: { label: 'Estoque (posição)', code: '17M', type: 'estoque' },
   grupos: { label: 'Visão financeira por grupo', code: '126M', type: 'despesas' }
@@ -33,7 +33,30 @@ export function date(v) {
   return isIso(iso) ? iso : null;
 }
 const txt = (v) => (blank(v) ? '' : String(v).trim());
-const unitOf = (empresa) => (/FILIAL/i.test(empresa) ? 'filial' : 'matriz');
+
+/**
+ * Divide o CSV em registros. Algumas notas trazem quebra de linha dentro do campo de observação
+ * (ex.: a chave da NF-e), e o registro sai em 2 ou 3 linhas: elas são juntadas de volta até o
+ * registro ter o número de campos mais comum do arquivo.
+ */
+export function splitRecords(text) {
+  const lines = text.replace(/^\uFEFF/, '').split(/\r?\n/);
+  const counts = {};
+  for (const l of lines) if (l.trim()) { const n = l.split(';').length; counts[n] = (counts[n] || 0) + 1; }
+  const width = +Object.entries(counts).sort((a, b) => b[1] - a[1] || b[0] - a[0])[0]?.[0] || 0; // o mais comum (no empate, o maior)
+  const out = [];
+  let buf = null, joined = 0;
+  for (const l of lines) {
+    if (buf === null && !l.trim()) continue;
+    const parts = l.split(';');
+    if (buf === null) buf = parts;
+    else { buf[buf.length - 1] += `\n${parts[0]}`; buf.push(...parts.slice(1)); joined++; }
+    if (buf.length >= width) { out.push(buf); buf = null; }
+  }
+  if (buf) out.push(buf);
+  out.joined = joined;
+  return out;
+}
 
 /* ---------- reconhecimento ---------- */
 const share = (rows, fn) => rows.filter(fn).length / Math.max(rows.length, 1);
@@ -68,7 +91,7 @@ function parseItens(rows) {
   return { rows: out, skipped };
 }
 function parsePeriodo(rows) {
-  return { rows: rows.filter((r) => r.length >= 7 && date(r[1])).map((r) => ({ doc: txt(r[0]), date: date(r[1]), tipo: txt(r[2]), total: num(r[6]) ?? num(r[4]) ?? 0 })) };
+  return { rows: rows.filter((r) => r.length >= 7 && date(r[1])).map((r) => ({ doc: txt(r[0]), date: date(r[1]), tipo: txt(r[2]), bruto: num(r[4]) ?? 0, desconto: num(r[5]) ?? 0, total: num(r[6]) ?? num(r[4]) ?? 0 })) };
 }
 function parseTitulos(rows) {
   return {
@@ -105,8 +128,14 @@ export function parseSentus(kind, rows) {
   const R = parsed.rows, warnings = [];
   let summary = { count: R.length };
   if (kind === 'itens') {
-    const units = [...new Set(R.map((x) => unitOf(x.empresa)))];
-    summary = { ...summary, ...range(R.map((x) => x.date)), total: sum(R, (x) => x.total), docs: new Set(R.map((x) => x.tipo + x.doc)).size, unit: units.length === 1 ? units[0] : null };
+    const names = {};
+    for (const x of R) if (x.empresa) names[x.empresa] = (names[x.empresa] || 0) + 1;
+    const [empresa] = Object.entries(names).sort((a, b) => b[1] - a[1])[0] || [''];
+    summary = { ...summary, ...range(R.map((x) => x.date)), total: sum(R, (x) => x.total), docs: new Set(R.map((x) => x.tipo + x.doc)).size, empresa };
+    const other = R.filter((x) => x.empresa && x.empresa !== empresa).length;
+    if (other) warnings.push(`${other} item(ns) com outra empresa na coluna do relatório: entram na unidade escolhida.`);
+    if (rows.joined) warnings.push(`${rows.joined} linha(s) quebrada(s) no arquivo (observação com quebra de linha) foram juntadas de volta.`);
+    warnings.push('O 26M traz o valor dos itens sem o desconto da nota: importe também o 80M do mesmo período para o faturamento ficar líquido.');
     const noCost = R.filter((x) => !x.cost).length;
     if (noCost) warnings.push(`${noCost} de ${R.length} itens vieram com custo zerado: o custo será estimado pelo estoque (17M) e, sem estoque, por margem de 30%.`);
     if (parsed.skipped.status) warnings.push(`${parsed.skipped.status} item(ns) de pedido que não está "Encerrado" foram ignorados (viraram nota fiscal).`);
@@ -116,9 +145,13 @@ export function parseSentus(kind, rows) {
     warnings.push('O relatório não traz vendedor: a tela Equipe comercial fica sem ranking para estes dados.');
   } else if (kind === 'periodo') {
     summary = { ...summary, ...range(R.map((x) => x.date)), total: sum(R, (x) => x.total) };
-    warnings.push('Este relatório é usado só para conferir o total das vendas por item (26M); ele não grava vendas.');
+    summary.discount = sum(R, (x) => x.desconto);
+    warnings.push('Este relatório aplica o desconto de cada nota às vendas por item (26M) já importadas e confere os totais; ele não cria vendas novas.');
   } else if (kind === 'titulos') {
-    summary = { ...summary, ...range(R.map((x) => x.venc || x.emissao)), total: sum(R, (x) => x.valor), open: sum(R.filter((x) => !x.pago_em && (x.saldo ?? x.valor) > 0), (x) => x.saldo ?? x.valor) };
+    const openOf = (x) => x.saldo ?? (x.pago_em ? 0 : x.valor);
+    summary = { ...summary, ...range(R.map((x) => x.venc || x.emissao)), total: sum(R, (x) => x.valor), open: sum(R.filter((x) => openOf(x) > 0), openOf) };
+    const partial = R.filter((x) => x.saldo > 0 && x.valor - x.saldo > 0.009).length;
+    if (partial) warnings.push(`${partial} título(s) pago(s) em parte: ficam em aberto pelo saldo que falta.`);
     const noDue = R.filter((x) => !x.venc).length;
     if (noDue) warnings.push(`${noDue} título(s) sem vencimento: será usada a data de emissão.`);
   } else if (kind === 'estoque') {
@@ -154,8 +187,11 @@ function stockCost(orgId, unit) {
   return (code) => { const s = q.get(orgId, code, unit); return s ? { cost: s.unit_cost, src: isProd(s.grp) ? 'estoque-estimado' : 'estoque' } : null; };
 }
 
-function commitItens(orgId, p, unitChosen, notes) {
-  const unit = p.summary.unit || unitChosen;
+// Nome da empresa no 26M → unidade (a filial não vem marcada no arquivo; o Cortex lembra a escolha)
+export function rememberedUnit(orgId, empresa) { return (empresa && getSettings(orgId).sentusUnits?.[empresa]) || null; }
+
+function commitItens(orgId, p, unit, notes) {
+  if (p.summary.empresa) saveSettings(orgId, { sentusUnits: { [p.summary.empresa]: unit } });
   const fromStock = stockCost(orgId, unit);
   const findC = db.prepare('SELECT id FROM customers WHERE org_id = ? AND name = ?');
   const insC = db.prepare('INSERT INTO customers (org_id, name, region) VALUES (?, ?, ?)');
@@ -211,9 +247,11 @@ function commitTitulos(orgId, p, unit, kind) {
     const due = x.venc || x.emissao;
     if (!due) continue;
     const ext = x.id || `${x.doc}|${x.party}`;
-    const paid = x.pago_em || (x.saldo === 0 && x.valor > 0 ? due : null);
+    const open = x.saldo > 0 || (x.saldo === null && !x.pago_em); // com saldo: continua em aberto pelo que falta
+    const paid = open ? null : x.pago_em || due;
+    const amount = Math.abs(x.saldo > 0 ? x.saldo : x.valor);
     const cur = find.get(orgId, unit, kind, ext);
-    if (cur) { upd.run(x.party, due, Math.abs(x.valor), paid, cur.id); updated++; } else { ins.run(orgId, kind, x.party, due, Math.abs(x.valor), paid, unit, ext); inserted++; }
+    if (cur) { upd.run(x.party, due, amount, paid, cur.id); updated++; } else { ins.run(orgId, kind, x.party, due, amount, paid, unit, ext); inserted++; }
   }
   return { inserted, updated };
 }
@@ -234,19 +272,43 @@ function commitEstoque(orgId, p, unit, notes) {
   return { inserted: p.rows.length };
 }
 
-function commitGrupos(orgId, p, unit, year, notes) {
+function commitGrupos(orgId, p, unit, year, notes, ungroupedInProfit) {
   db.prepare(`DELETE FROM expenses WHERE org_id = ? AND unit = ? AND description = ? AND date LIKE ?`).run(orgId, unit, EXP_DESC, `${year}-%`);
-  const ins = db.prepare('INSERT INTO expenses (org_id, date, category, description, amount, unit) VALUES (?, ?, ?, ?, ?, ?)');
-  let inserted = 0;
+  const ins = db.prepare('INSERT INTO expenses (org_id, date, category, description, amount, unit, in_profit) VALUES (?, ?, ?, ?, ?, ?, ?)');
+  let inserted = 0, outside = 0;
   for (const x of p.rows.filter((r) => /DESPESA/.test(r.section))) {
-    const cat = /N[ÃA]O CLASSIFICADO/i.test(x.category) ? 'Sem grupo financeiro' : x.category;
-    x.months.forEach((v, i) => { if (v) { ins.run(orgId, `${year}-${String(i + 1).padStart(2, '0')}-01`, cat, EXP_DESC, -v, unit); inserted++; } });
+    const noGroup = /N[ÃA]O CLASSIFICADO/i.test(x.category);
+    const cat = noGroup ? (ungroupedInProfit ? 'Sem grupo financeiro' : 'Sem grupo financeiro (fora do lucro)') : x.category;
+    const inProfit = noGroup && !ungroupedInProfit ? 0 : 1;
+    x.months.forEach((v, i) => { if (v) { ins.run(orgId, `${year}-${String(i + 1).padStart(2, '0')}-01`, cat, EXP_DESC, -v, unit, inProfit); inserted++; if (!inProfit) outside -= v; } });
   }
+  if (outside) notes.push(`${brl(outside)} em despesas sem grupo foram gravadas, mas não entram no cálculo do lucro (provavelmente incluem compras de mercadoria, que já entram como custo das vendas).`);
   notes.push(`Despesas gravadas por mês de ${year} (dia 1 de cada mês). Importar de novo o mesmo ano substitui os valores.`);
   return { inserted };
 }
 
+function applyDiscounts(orgId, p, unit, notes) {
+  const find = db.prepare('SELECT id, total FROM orders WHERE org_id = ? AND external_id = ?');
+  const scaleItems = db.prepare('UPDATE order_items SET unit_price = unit_price * ? WHERE order_id = ?');
+  const setTotal = db.prepare('UPDATE orders SET total = ? WHERE id = ?');
+  let applied = 0, amount = 0, missing = 0, mismatch = 0;
+  for (const x of p.rows) {
+    const o = find.get(orgId, `sentus:${unit}:${x.tipo}:${x.doc}`);
+    if (!o) { missing++; continue; }
+    if (Math.abs(o.total - x.total) < 0.01) continue; // já está líquido (ou importado de novo)
+    // só aplica quando os itens somam o valor bruto da nota e a diferença é o desconto
+    if (x.desconto > 0 && Math.abs(o.total - x.bruto) < 0.02 && o.total > 0) {
+      scaleItems.run(x.total / o.total, o.id); setTotal.run(x.total, o.id);
+      applied++; amount += o.total - x.total;
+    } else mismatch++;
+  }
+  if (applied) { notes.push(`Desconto aplicado em ${applied} nota(s): ${brl(amount)} a menos no faturamento, que agora está líquido.`); clearProductCache(); }
+  if (missing) notes.push(`${missing} nota(s) do 80M ainda não têm as vendas por item (26M) da ${UNIT_LABEL[unit]} no Cortex: importe o 26M e depois o 80M de novo para aplicar os descontos.`);
+  if (mismatch) notes.push(`${mismatch} nota(s) com diferença que não é desconto (ex.: frete ou acréscimo) ficaram como no 26M.`);
+}
+
 function checkPeriodo(orgId, p, unit, notes) {
+  applyDiscounts(orgId, p, unit, notes);
   const { from, to } = p.summary;
   const r = db.prepare("SELECT COALESCE(SUM(total),0) v, COUNT(*) n FROM orders WHERE org_id = ? AND unit = ? AND date BETWEEN ? AND ? AND external_id LIKE 'sentus:%'").get(orgId, unit, from, to);
   if (!r.n) notes.push(`Ainda não há vendas por item (26M) da ${UNIT_LABEL[unit]} neste período para conferir.`);
@@ -257,7 +319,7 @@ function checkPeriodo(orgId, p, unit, notes) {
   return { inserted: 0 };
 }
 
-export function commitSentus(orgId, userId, p, { unit = 'matriz', titleKind = 'pagar', year = new Date().getFullYear(), filename = '' } = {}) {
+export function commitSentus(orgId, userId, p, { unit = 'matriz', titleKind = 'pagar', year = new Date().getFullYear(), filename = '', ungrouped = 'fora' } = {}) {
   unit = UNIT_LABEL[unit] ? unit : 'matriz';
   titleKind = titleKind === 'receber' ? 'receber' : 'pagar';
   year = Math.min(2100, Math.max(2000, +year || new Date().getFullYear()));
@@ -268,11 +330,11 @@ export function commitSentus(orgId, userId, p, { unit = 'matriz', titleKind = 'p
     result = p.kind === 'itens' ? commitItens(orgId, p, unit, notes)
       : p.kind === 'titulos' ? commitTitulos(orgId, p, unit, titleKind)
       : p.kind === 'estoque' ? commitEstoque(orgId, p, unit, notes)
-      : p.kind === 'grupos' ? commitGrupos(orgId, p, unit, year, notes)
+      : p.kind === 'grupos' ? commitGrupos(orgId, p, unit, year, notes, ungrouped === 'dentro')
       : checkPeriodo(orgId, p, unit, notes);
   })();
   const u = UNIT_LABEL[result.unit || unit];
   const type = p.kind === 'titulos' ? 'contas' : SENTUS[p.kind].type;
   logEvent(orgId, userId, 'import', `${filename || p.label}: ${p.label} · ${u}${p.kind === 'titulos' ? ` (${titleKind === 'pagar' ? 'a pagar' : 'a receber'})` : ''} · ${result.inserted} linha(s)`, 'ok', { type, unit: result.unit || unit, sentus: p.code });
-  return { ...result, kind: p.kind, label: p.label, unitLabel: u, replacedDemo, notes: [...p.warnings.filter((w) => !/só para conferir/.test(w)), ...notes] };
+  return { ...result, kind: p.kind, label: p.label, unitLabel: u, replacedDemo, notes: [...p.warnings.filter((w) => !/não cria vendas novas/.test(w)), ...notes] };
 }

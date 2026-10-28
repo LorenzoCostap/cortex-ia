@@ -53,25 +53,25 @@ async function previewFile(file) {
 
 // Relatórios do ERP SENTUS (reconhecidos pelo servidor): opções e prévia
 const SENT_RANK = { estoque: -30, itens: -20, titulos: -10, grupos: -5, periodo: 50 }; // estoque antes das vendas (custo); conferência por último
-const sentusDefaults = (s) => ({ unit: s.summary.unit || 'matriz', titleKind: 'pagar', year: new Date().getFullYear() });
+const sentusDefaults = (s) => ({ unit: s.suggestedUnit || 'matriz', titleKind: 'pagar', year: new Date().getFullYear(), ungrouped: 'fora' });
 const UNIT_NAME = { matriz: 'Matriz', filial: 'Filial' };
 
 function SentusOptions({ s, v, onChange }) {
   const set = (k) => (e) => onChange({ ...v, [k]: e.target.value });
   return (
     <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
-      {s.kind === 'itens' && s.summary.unit
-        ? <span className="badge">Empresa: {UNIT_NAME[s.summary.unit]} (lida do arquivo)</span>
-        : <select className="select" style={{ width: 'auto', minHeight: 34 }} aria-label="Empresa" value={v.unit} onChange={set('unit')}><option value="matriz">Matriz</option><option value="filial">Filial</option></select>}
+      <select className="select" style={{ width: 'auto', minHeight: 34 }} aria-label="Empresa" value={v.unit} onChange={set('unit')}><option value="matriz">Matriz</option><option value="filial">Filial</option></select>
+      {s.kind === 'itens' && s.summary.empresa && <span className="dim" style={{ fontSize: 12 }}>Empresa no arquivo: {s.summary.empresa}{s.suggestedUnit ? ` (lembrada como ${UNIT_NAME[s.suggestedUnit]})` : ''}</span>}
       {s.kind === 'titulos' && <select className="select" style={{ width: 'auto', minHeight: 34 }} aria-label="Tipo de título" value={v.titleKind} onChange={set('titleKind')}><option value="pagar">Títulos a pagar</option><option value="receber">Títulos a receber</option></select>}
       {s.kind === 'grupos' && <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13 }}>Ano<input className="input" type="number" min="2000" max="2100" style={{ width: 90, minHeight: 34 }} value={v.year} onChange={set('year')} /></label>}
+      {s.kind === 'grupos' && <select className="select" style={{ width: 'auto', minHeight: 34 }} aria-label="Despesas sem grupo" value={v.ungrouped} onChange={set('ungrouped')}><option value="fora">Despesas sem grupo: fora do lucro</option><option value="dentro">Despesas sem grupo: contar no lucro</option></select>}
     </div>
   );
 }
 
 function SentusPreview({ s }) {
   const sm = s.summary;
-  const total = { itens: 'Faturamento no arquivo', periodo: 'Total do período', titulos: 'Valor dos títulos', estoque: 'Valor do estoque (saldos positivos)', grupos: 'Despesas no arquivo' }[s.kind];
+  const total = { itens: 'Faturamento no arquivo', periodo: 'Total líquido do período', titulos: 'Valor dos títulos', estoque: 'Valor do estoque (saldos positivos)', grupos: 'Despesas no arquivo' }[s.kind];
   return (
     <>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 12 }}>
@@ -79,6 +79,7 @@ function SentusPreview({ s }) {
         {sm.from && <div className="kpi" style={{ padding: 16 }}><span className="kpi-label">Período</span><span className="kpi-value" style={{ fontSize: 16 }}>{brDate(sm.from)} a {brDate(sm.to)}</span></div>}
         <div className="kpi" style={{ padding: 16 }}><span className="kpi-label">{total}</span><span className="kpi-value" style={{ fontSize: 22 }}>{brl(sm.total)}</span></div>
         {sm.open !== undefined && <div className="kpi" style={{ padding: 16 }}><span className="kpi-label">Em aberto</span><span className="kpi-value" style={{ fontSize: 22 }}>{brl(sm.open)}</span></div>}
+        {sm.discount > 0 && <div className="kpi" style={{ padding: 16 }}><span className="kpi-label">Descontos das notas</span><span className="kpi-value" style={{ fontSize: 22 }}>{brl(sm.discount)}</span></div>}
       </div>
       {s.warnings.map((w) => <div key={w} className="alert warn"><Icon name="info" color="var(--amber)" /><span>{w}</span></div>)}
     </>
