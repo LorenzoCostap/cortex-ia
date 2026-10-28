@@ -3,7 +3,7 @@ import { useMemo, useState } from 'react';
 import { api } from '../api.js';
 import { useAuth } from '../auth.jsx';
 import PrintButton from '../components/PrintButton.jsx';
-import { PageHead } from '../components/Layout.jsx';
+import { PageHead, UnitSelect } from '../components/Layout.jsx';
 import CompareToggle, { useCompare } from '../components/CompareToggle.jsx';
 import { Icon, Kpi, KpiSkeleton, ErrorBox, Empty, useAsync } from '../components/ui.jsx';
 import PeriodPicker, { presetRange, periodLabel } from '../components/PeriodPicker.jsx';
@@ -58,6 +58,7 @@ export default function Sales() {
   const vsNote = cmp === 'ano' ? 'vs ano anterior' : 'vs anterior';
   const d = s.data;
   const rows = useMemo(() => (d?.products || []).filter((p) => p.name.toLowerCase().includes(q.toLowerCase())), [d, q]);
+  const hasStock = (d?.products || []).some((p) => p.stock !== null && p.stock !== undefined);
   const exportCsv = () => {
     const lines = [['Produto', 'Categoria', 'Quantidade', 'Receita', 'Variação %', 'Margem %', 'Classe'], ...d.products.map((p) => [p.name, p.category, p.qty, p.revenue.toFixed(2).replace('.', ','), p.change ?? '', p.margin, p.abc])];
     const blob = new Blob(['﻿' + lines.map((l) => l.map((c) => `"${String(c).replace(/"/g, '""')}"`).join(';')).join('\n')], { type: 'text/csv;charset=utf-8' });
@@ -67,6 +68,7 @@ export default function Sales() {
   return (
     <>
       <PageHead eyebrow="Análise comercial" title="Vendas e indicadores">
+        <UnitSelect />
         <CompareToggle value={cmp} onChange={setCmp} prevLabel="Período anterior" />
         <PrintButton />
         <button className="btn" onClick={exportCsv} disabled={!d}><Icon name="download" size={16} color="var(--muted)" />Exportar CSV</button>
@@ -120,7 +122,7 @@ export default function Sales() {
             </div>
             <div className="table-wrap">
               <table className="table" style={{ minWidth: 720 }}>
-                <thead><tr><th>Produto</th><th>Categoria</th><th style={{ textAlign: 'right' }}>Qtd.</th><th style={{ textAlign: 'right' }}>Receita</th><th style={{ textAlign: 'right' }}>Var.</th><th style={{ textAlign: 'right' }}>Margem</th><th style={{ textAlign: 'center' }}>Classe</th></tr></thead>
+                <thead><tr><th>Produto</th><th>Categoria</th><th style={{ textAlign: 'right' }}>Qtd.</th><th style={{ textAlign: 'right' }}>Receita</th><th style={{ textAlign: 'right' }}>Var.</th><th style={{ textAlign: 'right' }}>Margem</th>{hasStock && <th style={{ textAlign: 'right' }}>Estoque</th>}<th style={{ textAlign: 'center' }}>Classe</th></tr></thead>
                 <tbody>
                   {rows.map((p) => (
                     <tr key={p.name}>
@@ -128,10 +130,11 @@ export default function Sales() {
                       <td className="num">{num(p.qty)}</td><td className="num">{brl(p.revenue)}</td>
                       <td className={`num ${toneOf(p.change)}`}>{p.change === null ? '—' : `${p.change > 0 ? '+' : '−'}${num(Math.abs(p.change), 1)}%`}</td>
                       <td className="num" style={{ color: 'var(--text-2)' }}>{num(p.margin, 1)}%</td>
+                      {hasStock && <td className={`num ${p.stock < 0 ? 'neg' : ''}`}>{p.stock === null ? '—' : num(p.stock)}</td>}
                       <td style={{ textAlign: 'center' }}><span className={`badge ${p.abc === 'A' ? 'violet' : ''}`} style={{ fontWeight: 600, padding: '3px 8px' }}>{p.abc}</span></td>
                     </tr>
                   ))}
-                  {!rows.length && <tr><td colSpan={7} className="muted" style={{ textAlign: 'center', padding: 24 }}>Nenhum produto encontrado para “{q}”.</td></tr>}
+                  {!rows.length && <tr><td colSpan={hasStock ? 8 : 7} className="muted" style={{ textAlign: 'center', padding: 24 }}>Nenhum produto encontrado para “{q}”.</td></tr>}
                 </tbody>
               </table>
             </div>

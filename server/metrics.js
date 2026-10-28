@@ -1,7 +1,12 @@
 // Todas as contas do Cortex ficam aqui. A IA nunca calcula nada: ela chama estas funções e interpreta o resultado.
 import { db } from './db.js';
+import { currentUnit } from './context.js';
 import { customerTable } from './customers.js';
 import { todayStr, addDays, addMonths, monthStart, monthEnd, monthKey, monthLabel, daysBetween, refMonth, weekRange, isoWeek, brDate } from './dates.js';
+
+// Matriz/filial: com uma empresa escolhida, as tabelas viram um filtro só dela; sem escolha, as duas somadas
+const U = (t) => { const u = currentUnit(); return u ? `(SELECT * FROM ${t} WHERE unit = '${u}')` : t; };
+export const unitLabel = () => ({ matriz: 'Matriz', filial: 'Filial' }[currentUnit()] || null);
 
 const r2 = (v) => Math.round((v || 0) * 100) / 100;
 const pctChange = (a, b) => (b ? r2(((a - b) / b) * 100) : null);
@@ -12,7 +17,7 @@ const pctChange = (a, b) => (b ? r2(((a - b) / b) * 100) : null);
  */
 export function operatingExpenses(org, from, to) {
   let total = 0;
-  const q = db.prepare('SELECT COALESCE(SUM(amount),0) v FROM expenses WHERE org_id = ? AND date BETWEEN ? AND ?');
+  const q = db.prepare(`SELECT COALESCE(SUM(amount),0) v FROM ${U('expenses')} WHERE org_id = ? AND date BETWEEN ? AND ?`);
   for (let m = monthStart(from); m <= to; m = addMonths(m, 1)) {
     const ms = m, me = monthEnd(m);
     const a = from > ms ? from : ms, b = to < me ? to : me;
@@ -28,10 +33,10 @@ export function operatingExpenses(org, from, to) {
 export function periodSummary(org, from, to) {
   const o = db.prepare(`
     SELECT COUNT(*) orders, COALESCE(SUM(total),0) revenue, COUNT(DISTINCT customer_id) customers
-    FROM orders WHERE org_id = ? AND date BETWEEN ? AND ?`).get(org, from, to);
+    FROM ${U('orders')} WHERE org_id = ? AND date BETWEEN ? AND ?`).get(org, from, to);
   const it = db.prepare(`
     SELECT COALESCE(SUM(i.qty*i.unit_cost),0) cogs, COUNT(i.id) items
-    FROM order_items i JOIN orders o ON o.id = i.order_id WHERE o.org_id = ? AND o.date BETWEEN ? AND ?`).get(org, from, to);
+    FROM order_items i JOIN ${U('orders')} o ON o.id = i.order_id WHERE o.org_id = ? AND o.date BETWEEN ? AND ?`).get(org, from, to);
   const revenue = r2(o.revenue), cogs = r2(it.cogs), opex = r2(operatingExpenses(org, from, to));
   const expenses = r2(cogs + opex), profit = r2(revenue - expenses);
   return {
@@ -85,12 +90,14 @@ export function monthlySeries(org, endMonth, n = 12) {
 
 // Cache das somas por produto: invalida sozinho quando entram/saem pedidos (importação, demonstração recriada).
 const productCache = new Map();
+/** Limpa o cache (ex.: custos recalculados pela importação do estoque). */
+export const clearProductCache = () => productCache.clear();
 function dataStamp(org) {
-  const r = db.prepare('SELECT COUNT(*) n, MAX(id) m FROM orders WHERE org_id = ?').get(org);
+  const r = db.prepare(`SELECT COUNT(*) n, MAX(id) m FROM ${U('orders')} WHERE org_id = ?`).get(org);
   return `${r.n}:${r.m}`;
 }
 function productRows(org, from, to) {
-  const key = `${org}|${from}|${to}`, stamp = dataStamp(org);
+  const key = `${org}|${currentUnit()}|${from}|${to}`, stamp = dataStamp(org);
   const hit = productCache.get(key);
   if (hit && hit.stamp === stamp) return hit.rows.map((r) => ({ ...r }));
   const rows = productRowsRaw(org, from, to);
@@ -100,8 +107,8 @@ function productRows(org, from, to) {
 }
 function productRowsRaw(org, from, to) {
   return db.prepare(`
-    SELECT p.id, p.name, p.category, SUM(i.qty) qty, SUM(i.qty*i.unit_price) revenue, SUM(i.qty*i.unit_cost) cost
-    FROM orders o CROSS JOIN order_items i ON i.order_id = o.id JOIN products p ON p.id = i.product_id
+    SELECT p.id, p.sku, p.name, p.category, SUM(i.qty) qty, SUM(i.qty*i.unit_price) revenue, SUM(i.qty*i.unit_cost) cost
+    FROM ${U('orders')} o CROSS JOIN order_items i ON i.order_id = o.id JOIN products p ON p.id = i.product_id
     WHERE o.org_id = ? AND o.date BETWEEN ? AND ? GROUP BY p.id`).all(org, from, to);
 }
 
@@ -111,6 +118,9 @@ export function productTable(org, from, to, cmp) {
   const before = Object.fromEntries(productRows(org, prev.from, prev.to).map((r) => [r.id, r]));
   const total = cur.reduce((s, r) => s + r.revenue, 0);
   cur.sort((a, b) => b.revenue - a.revenue);
+  // Saldo em estoque (relatório 17M do SENTUS), quando houver
+  const u = currentUnit();
+  const stock = Object.fromEntries(db.prepare(`SELECT code, SUM(qty) q FROM stock WHERE org_id = ? ${u ? 'AND unit = ?' : ''} GROUP BY code`).all(...(u ? [org, u] : [org])).map((s) => [s.code, s.q]));
   let acc = 0;
   return cur.map((r) => {
     acc += r.revenue;
@@ -120,7 +130,8 @@ export function productTable(org, from, to, cmp) {
       share: total ? r2((r.revenue / total) * 100) : 0,
       margin: r.revenue ? r2(((r.revenue - r.cost) / r.revenue) * 100) : 0,
       change: before[r.id] ? pctChange(r.revenue, before[r.id].revenue) : null,
-      abc: share <= 80 ? 'A' : share <= 95 ? 'B' : 'C'
+      abc: share <= 80 ? 'A' : share <= 95 ? 'B' : 'C',
+      stock: r.sku && stock[r.sku] !== undefined ? stock[r.sku] : null
     };
   });
 }
@@ -140,7 +151,7 @@ function categoriesFrom(products) {
 export function categoryBreakdown(org, from, to) {
   const rows = db.prepare(`
     SELECT p.category, SUM(i.qty*i.unit_price) revenue
-    FROM order_items i JOIN orders o ON o.id = i.order_id JOIN products p ON p.id = i.product_id
+    FROM order_items i JOIN ${U('orders')} o ON o.id = i.order_id JOIN products p ON p.id = i.product_id
     WHERE o.org_id = ? AND o.date BETWEEN ? AND ? GROUP BY p.category ORDER BY revenue DESC`).all(org, from, to);
   const total = rows.reduce((s, r) => s + r.revenue, 0);
   return rows.map((r) => ({ category: r.category, revenue: r2(r.revenue), share: total ? r2((r.revenue / total) * 100) : 0 }));
@@ -150,7 +161,7 @@ export function dailySeries(org, from, to, cmp) {
   // Comparação alinhada por dia da semana: cada dia é comparado ao mesmo dia N semanas antes (ou 52 semanas, no ano anterior).
   const span = daysBetween(from, to) + 1;
   const step = cmp === 'ano' ? 364 : 7 * Math.ceil(span / 7);
-  const q = db.prepare('SELECT date, SUM(total) revenue FROM orders WHERE org_id = ? AND date BETWEEN ? AND ? GROUP BY date');
+  const q = db.prepare(`SELECT date, SUM(total) revenue FROM ${U('orders')} WHERE org_id = ? AND date BETWEEN ? AND ? GROUP BY date`);
   const rev = Object.fromEntries(q.all(org, addDays(from, -step), to).map((r) => [r.date, r.revenue]));
   const out = [];
   if (span <= 62) {
@@ -180,11 +191,11 @@ export function customersDeclining(org, from, to, limit = 5) {
       SUM(CASE WHEN o.date BETWEEN ? AND ? THEN o.total ELSE 0 END) cur,
       SUM(CASE WHEN o.date BETWEEN ? AND ? THEN o.total ELSE 0 END) base,
       MAX(o.date) last_order
-    FROM customers c JOIN orders o ON o.customer_id = c.id
+    FROM customers c JOIN ${U('orders')} o ON o.customer_id = c.id
     WHERE c.org_id = ? AND o.date BETWEEN ? AND ?
     GROUP BY c.id`).all(from, to, baseFrom, baseTo, org, baseFrom, to);
   const today = todayStr();
-  const lastAny = db.prepare('SELECT MAX(date) d FROM orders WHERE customer_id = ?');
+  const lastAny = db.prepare(`SELECT MAX(date) d FROM ${U('orders')} WHERE customer_id = ?`);
   return rows
     .map((r) => {
       const expected = (r.base / baseDays) * days;
@@ -197,7 +208,7 @@ export function customersDeclining(org, from, to, limit = 5) {
 }
 
 function customerDiff(org, a, b) {
-  const q = db.prepare('SELECT c.name, SUM(o.total) v FROM orders o JOIN customers c ON c.id = o.customer_id WHERE o.org_id = ? AND o.date BETWEEN ? AND ? GROUP BY c.id');
+  const q = db.prepare(`SELECT c.name, SUM(o.total) v FROM ${U('orders')} o JOIN customers c ON c.id = o.customer_id WHERE o.org_id = ? AND o.date BETWEEN ? AND ? GROUP BY c.id`);
   const A = Object.fromEntries(q.all(org, a.from, a.to).map((r) => [r.name, r.v]));
   const B = Object.fromEntries(q.all(org, b.from, b.to).map((r) => [r.name, r.v]));
   const names = new Set([...Object.keys(A), ...Object.keys(B)]);
@@ -216,7 +227,7 @@ export function stockouts(org, from, to) {
   // Uma consulta agrupada por produto/dia (em vez de uma por produto) — rápido mesmo com milhões de itens.
   const names = Object.fromEntries(db.prepare('SELECT id, name FROM products WHERE org_id = ?').all(org).map((p) => [p.id, p.name]));
   const soldDays = {};
-  for (const r of db.prepare('SELECT i.product_id pid, o.date FROM orders o CROSS JOIN order_items i ON i.order_id = o.id WHERE o.org_id = ? AND o.date BETWEEN ? AND ? GROUP BY i.product_id, o.date').all(org, from, to)) {
+  for (const r of db.prepare(`SELECT i.product_id pid, o.date FROM ${U('orders')} o CROSS JOIN order_items i ON i.order_id = o.id WHERE o.org_id = ? AND o.date BETWEEN ? AND ? GROUP BY i.product_id, o.date`).all(org, from, to)) {
     (soldDays[r.pid] ||= new Set()).add(r.date);
   }
   const days = [];
@@ -231,7 +242,7 @@ export function stockouts(org, from, to) {
   }
   if (!found.length) return [];
   const prev = previousPeriod(from, to);
-  const prevRev = Object.fromEntries(db.prepare(`SELECT i.product_id pid, SUM(i.qty*i.unit_price) v FROM orders o CROSS JOIN order_items i ON i.order_id = o.id
+  const prevRev = Object.fromEntries(db.prepare(`SELECT i.product_id pid, SUM(i.qty*i.unit_price) v FROM ${U('orders')} o CROSS JOIN order_items i ON i.order_id = o.id
     WHERE o.org_id = ? AND o.date BETWEEN ? AND ? AND i.product_id IN (${found.map(() => '?').join(',')}) GROUP BY i.product_id`).all(org, prev.from, prev.to, ...found.map((f) => f.pid)).map((r) => [r.pid, r.v]));
   return found.map((f) => ({ name: names[f.pid], from: f.from, to: f.to, days: f.days, estimatedLoss: r2(((prevRev[f.pid] || 0) / 26) * f.days) }))
     .sort((a, b) => b.estimatedLoss - a.estimatedLoss);
@@ -255,12 +266,12 @@ export function comparePeriods(org, a, b) {
 }
 
 export function expensesByCategory(org, from, to) {
-  return db.prepare('SELECT category, ROUND(SUM(amount),2) amount FROM expenses WHERE org_id = ? AND date BETWEEN ? AND ? GROUP BY category ORDER BY amount DESC').all(org, from, to);
+  return db.prepare(`SELECT category, ROUND(SUM(amount),2) amount FROM ${U('expenses')} WHERE org_id = ? AND date BETWEEN ? AND ? GROUP BY category ORDER BY amount DESC`).all(org, from, to);
 }
 
 export function bills(org, kind, { days = 7, includeOverdue = true } = {}) {
   const today = todayStr();
-  const rows = db.prepare(`SELECT party, due_date, amount FROM bills WHERE org_id = ? AND kind = ? AND paid_at IS NULL AND due_date <= ? ${includeOverdue ? '' : 'AND due_date >= ?'} ORDER BY due_date`)
+  const rows = db.prepare(`SELECT party, due_date, amount FROM ${U('bills')} WHERE org_id = ? AND kind = ? AND paid_at IS NULL AND due_date <= ? ${includeOverdue ? '' : 'AND due_date >= ?'} ORDER BY due_date`)
     .all(...[org, kind, addDays(today, days)].concat(includeOverdue ? [] : [today]));
   return rows.map((r) => {
     const d = daysBetween(today, r.due_date);
@@ -270,7 +281,7 @@ export function bills(org, kind, { days = 7, includeOverdue = true } = {}) {
 
 export function receivablesSummary(org) {
   const today = todayStr();
-  const r = db.prepare("SELECT COALESCE(SUM(amount),0) total, COUNT(*) n, SUM(CASE WHEN due_date < ? THEN 1 ELSE 0 END) overdue, COALESCE(SUM(CASE WHEN due_date < ? THEN amount ELSE 0 END),0) overdueAmount FROM bills WHERE org_id = ? AND kind = 'receber' AND paid_at IS NULL").get(today, today, org);
+  const r = db.prepare(`SELECT COALESCE(SUM(amount),0) total, COUNT(*) n, SUM(CASE WHEN due_date < ? THEN 1 ELSE 0 END) overdue, COALESCE(SUM(CASE WHEN due_date < ? THEN amount ELSE 0 END),0) overdueAmount FROM ${U('bills')} WHERE org_id = ? AND kind = 'receber' AND paid_at IS NULL`).get(today, today, org);
   return { total: r2(r.total), count: r.n, overdue: r.overdue || 0, overdueAmount: r2(r.overdueAmount) };
 }
 
@@ -287,7 +298,7 @@ export function goalProgress(org, month = todayStr()) {
 
 /** Data da última venda registrada (dados importados podem estar atrasados em relação a hoje). */
 export function lastSaleDate(org) {
-  return db.prepare('SELECT MAX(date) d FROM orders WHERE org_id = ?').get(org).d;
+  return db.prepare(`SELECT MAX(date) d FROM ${U('orders')} WHERE org_id = ?`).get(org).d;
 }
 
 /**
@@ -325,7 +336,7 @@ export function attentionIndicators(org) {
   if (overdue.length) items.push({ severity: 'alta', title: 'Contas a pagar vencidas', detail: `${overdue.length} conta(s) vencida(s)`, value: r2(overdue.reduce((s, b) => s + b.amount, 0)), items: overdue });
   const rec = receivablesSummary(org);
   if (rec.overdue) items.push({ severity: 'media', title: 'Recebimentos atrasados', detail: `${rec.overdue} título(s) de clientes vencidos`, value: rec.overdueAmount });
-  const top = db.prepare(`SELECT c.name, MAX(o.date) last, SUM(o.total) v FROM orders o JOIN customers c ON c.id = o.customer_id WHERE o.org_id = ? AND o.date >= ? GROUP BY c.id ORDER BY v DESC LIMIT 20`).all(org, addMonths(act, -3));
+  const top = db.prepare(`SELECT c.name, MAX(o.date) last, SUM(o.total) v FROM ${U('orders')} o JOIN customers c ON c.id = o.customer_id WHERE o.org_id = ? AND o.date >= ? GROUP BY c.id ORDER BY v DESC LIMIT 20`).all(org, addMonths(act, -3));
   for (const c of top) {
     const d = daysBetween(c.last, act);
     if (d >= 14) items.push({ severity: 'alta', title: `${c.name} sem pedidos`, detail: `Último pedido há ${d} dias — é um dos 20 maiores clientes`, value: d, unit: 'dias' });
@@ -374,13 +385,13 @@ export function salesView(org, from, to, cmp) {
 export function goalSeries(org, from, to) {
   const span = daysBetween(from, to) + 1;
   const unit = span <= 31 ? 'dia' : span <= 190 ? 'semana' : 'mes';
-  const revQ = db.prepare('SELECT date, SUM(total) v FROM orders WHERE org_id = ? AND date BETWEEN ? AND ? GROUP BY date').all(org, from, to);
+  const revQ = db.prepare(`SELECT date, SUM(total) v FROM ${U('orders')} WHERE org_id = ? AND date BETWEEN ? AND ? GROUP BY date`).all(org, from, to);
   // Despesas por dia: custo das mercadorias vendidas no dia + despesas operacionais do mês rateadas por dia
-  const cogs = Object.fromEntries(db.prepare('SELECT o.date, SUM(i.qty*i.unit_cost) v FROM order_items i JOIN orders o ON o.id = i.order_id WHERE o.org_id = ? AND o.date BETWEEN ? AND ? GROUP BY o.date').all(org, from, to).map((r) => [r.date, r.v]));
+  const cogs = Object.fromEntries(db.prepare(`SELECT o.date, SUM(i.qty*i.unit_cost) v FROM order_items i JOIN ${U('orders')} o ON o.id = i.order_id WHERE o.org_id = ? AND o.date BETWEEN ? AND ? GROUP BY o.date`).all(org, from, to).map((r) => [r.date, r.v]));
   const opexMonth = {};
   const opexDay = (d) => { const k = monthKey(d); if (opexMonth[k] === undefined) opexMonth[k] = operatingExpenses(org, monthStart(d), monthEnd(d)) / (daysBetween(monthStart(d), monthEnd(d)) + 1); return opexMonth[k]; };
   const rev = Object.fromEntries(revQ.map((r) => [r.date, r.v]));
-  const lyQ = db.prepare('SELECT COALESCE(SUM(total),0) v FROM orders WHERE org_id = ? AND date BETWEEN ? AND ?');
+  const lyQ = db.prepare(`SELECT COALESCE(SUM(total),0) v FROM ${U('orders')} WHERE org_id = ? AND date BETWEEN ? AND ?`);
   const goals = Object.fromEntries(db.prepare('SELECT month, revenue_target FROM goals WHERE org_id = ?').all(org).map((g) => [g.month, g.revenue_target]));
   // A meta do mês é distribuída pelos dias úteis (sábado conta 30%, domingo não conta).
   const wDay = (d) => [0, 1, 1, 1, 1, 1, 0.3][new Date(d + 'T00:00:00Z').getUTCDay()];
@@ -427,7 +438,7 @@ export function forecast(org, month = todayStr()) {
   const today = todayStr();
   const ms = monthStart(month), me = monthEnd(month);
   const target = db.prepare('SELECT revenue_target FROM goals WHERE org_id = ? AND month = ?').get(org, monthKey(ms))?.revenue_target ?? null;
-  const rev = (a, b) => db.prepare('SELECT COALESCE(SUM(total),0) v FROM orders WHERE org_id = ? AND date BETWEEN ? AND ?').get(org, a, b).v;
+  const rev = (a, b) => db.prepare(`SELECT COALESCE(SUM(total),0) v FROM ${U('orders')} WHERE org_id = ? AND date BETWEEN ? AND ?`).get(org, a, b).v;
   const closed = me < today;
   const realized = rev(ms, closed ? me : today);
   const yesterday = addDays(today, -1);
@@ -453,7 +464,7 @@ export function goalsOverview(org) {
     const m = addMonths(today, i);
     const target = db.prepare('SELECT revenue_target FROM goals WHERE org_id = ? AND month = ?').get(org, monthKey(m))?.revenue_target ?? null;
     const started = m <= today;
-    const realized = started ? db.prepare('SELECT COALESCE(SUM(total),0) v FROM orders WHERE org_id = ? AND date BETWEEN ? AND ?').get(org, m, monthEnd(m)).v : null;
+    const realized = started ? db.prepare(`SELECT COALESCE(SUM(total),0) v FROM ${U('orders')} WHERE org_id = ? AND date BETWEEN ? AND ?`).get(org, m, monthEnd(m)).v : null;
     const status = !started ? 'futuro' : monthEnd(m) < today ? 'fechado' : 'em andamento';
     out.push({ month: monthKey(m), label: monthLabel(m), status, target, realized: realized === null ? null : r2(realized), pct: target && realized !== null ? r2((realized / target) * 100) : null });
   }
@@ -463,8 +474,8 @@ export function goalsOverview(org) {
 /** Orçamento de despesas por categoria: orçado × gasto no mês, com a média dos 3 meses anteriores como referência. */
 function expenseBudget(org, month, targets) {
   const ms = `${month}-01`, me = monthEnd(ms), today = todayStr();
-  const spent = Object.fromEntries(db.prepare('SELECT category k, SUM(amount) v FROM expenses WHERE org_id = ? AND date BETWEEN ? AND ? GROUP BY category').all(org, ms, me).map((r) => [r.k, r.v]));
-  const avg = Object.fromEntries(db.prepare('SELECT category k, SUM(amount) / 3.0 v FROM expenses WHERE org_id = ? AND date BETWEEN ? AND ? GROUP BY category').all(org, addMonths(ms, -3), addDays(ms, -1)).map((r) => [r.k, r.v]));
+  const spent = Object.fromEntries(db.prepare(`SELECT category k, SUM(amount) v FROM ${U('expenses')} WHERE org_id = ? AND date BETWEEN ? AND ? GROUP BY category`).all(org, ms, me).map((r) => [r.k, r.v]));
+  const avg = Object.fromEntries(db.prepare(`SELECT category k, SUM(amount) / 3.0 v FROM ${U('expenses')} WHERE org_id = ? AND date BETWEEN ? AND ? GROUP BY category`).all(org, addMonths(ms, -3), addDays(ms, -1)).map((r) => [r.k, r.v]));
   const keys = [...new Set([...Object.keys(targets), ...Object.keys(spent), ...Object.keys(avg)])];
   const closed = me < today;
   return keys.map((k) => {
@@ -486,8 +497,8 @@ export function goalItems(org, month, dim) {
   const targets = Object.fromEntries(db.prepare('SELECT key, target FROM goal_items WHERE org_id = ? AND month = ? AND dim = ?').all(org, month, dim).map((r) => [r.key, r.target]));
   if (dim === 'despesa') return expenseBudget(org, month, targets);
   const real = dim === 'vendedor'
-    ? db.prepare("SELECT COALESCE(seller, 'Sem vendedor') k, SUM(total) v, COUNT(DISTINCT customer_id) c FROM orders WHERE org_id = ? AND date BETWEEN ? AND ? GROUP BY k").all(org, ms, me)
-    : db.prepare('SELECT p.category k, SUM(i.qty*i.unit_price) v FROM order_items i JOIN orders o ON o.id = i.order_id JOIN products p ON p.id = i.product_id WHERE o.org_id = ? AND o.date BETWEEN ? AND ? GROUP BY p.category').all(org, ms, me);
+    ? db.prepare(`SELECT COALESCE(seller, 'Sem vendedor') k, SUM(total) v, COUNT(DISTINCT customer_id) c FROM ${U('orders')} WHERE org_id = ? AND date BETWEEN ? AND ? GROUP BY k`).all(org, ms, me)
+    : db.prepare(`SELECT p.category k, SUM(i.qty*i.unit_price) v FROM order_items i JOIN ${U('orders')} o ON o.id = i.order_id JOIN products p ON p.id = i.product_id WHERE o.org_id = ? AND o.date BETWEEN ? AND ? GROUP BY p.category`).all(org, ms, me);
   const realMap = Object.fromEntries(real.map((r) => [r.k, r]));
   let keys = [...new Set([...Object.keys(targets), ...real.map((r) => r.k)])];
   if (dim === 'vendedor' && !keys.length) keys = db.prepare('SELECT DISTINCT seller k FROM customers WHERE org_id = ? AND seller IS NOT NULL').all(org).map((r) => r.k);
@@ -496,5 +507,5 @@ export function goalItems(org, month, dim) {
 }
 
 export function salesBySeller(org, from, to) {
-  return db.prepare("SELECT COALESCE(seller, 'Sem vendedor') seller, SUM(total) revenue, COUNT(*) orders FROM orders WHERE org_id = ? AND date BETWEEN ? AND ? GROUP BY seller ORDER BY revenue DESC").all(org, from, to).map((r) => ({ ...r, revenue: r2(r.revenue) }));
+  return db.prepare(`SELECT COALESCE(seller, 'Sem vendedor') seller, SUM(total) revenue, COUNT(*) orders FROM ${U('orders')} WHERE org_id = ? AND date BETWEEN ? AND ? GROUP BY seller ORDER BY revenue DESC`).all(org, from, to).map((r) => ({ ...r, revenue: r2(r.revenue) }));
 }

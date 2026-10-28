@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { api } from '../api.js';
-import { PageHead } from '../components/Layout.jsx';
+import { PageHead, UnitSelect } from '../components/Layout.jsx';
 import { Icon, Spinner, Switch, ErrorBox, Empty, Check, SelectBar, useSelection, useAsync, useToast } from '../components/ui.jsx';
 import { relTime } from '../format.js';
 
@@ -127,7 +127,7 @@ export default function Reports() {
 
   return (
     <>
-      <PageHead eyebrow="Gerados a partir dos seus dados" title="Relatórios" />
+      <PageHead eyebrow="Gerados a partir dos seus dados" title="Relatórios"><UnitSelect /></PageHead>
       <div className="row" style={{ alignItems: 'flex-start' }}>
         <div className="no-print" style={{ flex: '1 1 320px', minWidth: 0, display: 'flex', flexDirection: 'column', gap: 16 }}>
           <form className="card" onSubmit={generate} aria-labelledby="nr">

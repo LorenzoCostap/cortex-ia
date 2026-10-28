@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { api, askStream } from '../api.js';
 import { useAuth } from '../auth.jsx';
-import { PageHead } from '../components/Layout.jsx';
+import { PageHead, UnitSelect } from '../components/Layout.jsx';
 import { Icon, Markdown, Spinner, useAsync, useToast } from '../components/ui.jsx';
 import { relTime } from '../format.js';
 import MiniChart from '../components/MiniChart.jsx';
@@ -130,6 +130,7 @@ export default function Assistant() {
     <div style={{ display: 'flex', flexWrap: 'wrap', gap: 24, alignItems: 'flex-start' }}>
       <div style={{ flex: '999 1 520px', minWidth: 0, display: 'flex', flexDirection: 'column', gap: 20 }}>
         <PageHead eyebrow={me.aiEnabled === false ? 'Respostas automáticas com os números da empresa' : 'Pergunte em linguagem natural'} title={me.aiEnabled === false ? 'Perguntas rápidas' : 'Assistente Cortex AI'}>
+        <UnitSelect />
           {me.aiEnabled !== false && <span className="badge" style={{ padding: '8px 12px', fontSize: 13 }}>
             <span className="pill-dot" style={{ background: !st ? 'var(--dim)' : st.online && st.hasModel ? 'var(--green)' : 'var(--amber)' }} />
             {!st ? 'Verificando IA…' : st.online && st.hasModel ? `Ollama · ${st.model} · local` : st.online ? `Modelo ${st.model} não instalado` : 'IA offline · respostas automáticas'}

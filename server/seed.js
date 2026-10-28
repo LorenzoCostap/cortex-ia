@@ -42,7 +42,7 @@ const SEASON = { 1: 0.82, 2: 0.86, 3: 0.95, 4: 0.98, 5: 1.0, 6: 0.98, 7: 1.03, 8
 const GOAL_FACTORS = [1.02, 0.99, 0.97, 1.04, 1.03, 0.98, 0.995, 0.98, 1.015, 0.985, 0.98, 1.09];
 
 export function clearOrgData(orgId) {
-  for (const t of ['orders', 'customers', 'products', 'expenses', 'bills', 'goals', 'goal_items', 'insights', 'reports', 'alerts']) {
+  for (const t of ['orders', 'customers', 'products', 'expenses', 'bills', 'goals', 'goal_items', 'insights', 'reports', 'alerts', 'stock']) {
     db.prepare(`DELETE FROM ${t} WHERE org_id = ?`).run(orgId);
   }
 }

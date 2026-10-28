@@ -162,6 +162,25 @@ addColumn('events', 'ip', 'TEXT');
 addColumn('alerts', 'dismissed_at', 'TEXT');       // alerta apagado pelo usuário (volta só se a situação se resolver e acontecer de novo)
 addColumn('organizations', 'logo', 'TEXT');        // foto da organização (data URL, já reduzida no navegador)
 addColumn('organizations', 'logo_at', 'TEXT');
+// Relatórios do ERP SENTUS: empresa (matriz/filial) de cada dado, títulos atualizáveis e origem do custo
+addColumn('orders', 'unit', 'TEXT');
+addColumn('expenses', 'unit', 'TEXT');
+addColumn('bills', 'unit', 'TEXT');
+addColumn('bills', 'external_id', 'TEXT');
+addColumn('order_items', 'cost_src', 'TEXT');      // arquivo | estoque | estoque-estimado | margem
+db.exec(`CREATE TABLE IF NOT EXISTS stock (
+  org_id INTEGER NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+  unit TEXT NOT NULL DEFAULT '',
+  code TEXT NOT NULL,
+  product TEXT,
+  grp TEXT,
+  un TEXT,
+  qty REAL,
+  unit_cost REAL,
+  value REAL,
+  updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+  PRIMARY KEY (org_id, unit, code)
+);`);
 db.exec(`
 CREATE TABLE IF NOT EXISTS goal_items (
   org_id INTEGER NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,

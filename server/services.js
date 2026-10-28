@@ -139,6 +139,7 @@ export function buildReport(orgId, type, period) {
 }
 
 export function saveReport(orgId, userId, report, mode = 'manual') {
+  if (M.unitLabel()) report = { ...report, title: `${report.title} · ${M.unitLabel()}` }; // relatório só da matriz ou da filial
   const id = db.prepare('INSERT INTO reports (org_id, type, title, period_label, mode, content_json, created_by) VALUES (?, ?, ?, ?, ?, ?, ?)')
     .run(orgId, report.type, report.title, report.periodLabel, mode, JSON.stringify(report.content), userId ?? null).lastInsertRowid;
   logEvent(orgId, userId, 'report', report.title, 'ok', { reportId: id, mode });
@@ -184,6 +185,7 @@ export async function scanWatchFolder(orgId, { force = false } = {}) {
     if (seen.get(orgId, full, mtime)) continue;
     try {
       const parsed = await readFile(fs.readFileSync(full), f);
+      if (parsed.sentus) throw new Error('Relatório do SENTUS: importe pela tela de importação para escolher a empresa.');
       if (parsed.sheets) {
         const all = importAll(orgId, null, parsed.sheets, { filename: `Pasta monitorada · ${f}` });
         const inserted = all.results.reduce((n, r) => n + (r.inserted || 0), 0);

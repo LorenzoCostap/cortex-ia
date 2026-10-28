@@ -51,6 +51,40 @@ async function previewFile(file) {
   return d;
 }
 
+// Relatórios do ERP SENTUS (reconhecidos pelo servidor): opções e prévia
+const SENT_RANK = { estoque: -30, itens: -20, titulos: -10, grupos: -5, periodo: 50 }; // estoque antes das vendas (custo); conferência por último
+const sentusDefaults = (s) => ({ unit: s.summary.unit || 'matriz', titleKind: 'pagar', year: new Date().getFullYear() });
+const UNIT_NAME = { matriz: 'Matriz', filial: 'Filial' };
+
+function SentusOptions({ s, v, onChange }) {
+  const set = (k) => (e) => onChange({ ...v, [k]: e.target.value });
+  return (
+    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
+      {s.kind === 'itens' && s.summary.unit
+        ? <span className="badge">Empresa: {UNIT_NAME[s.summary.unit]} (lida do arquivo)</span>
+        : <select className="select" style={{ width: 'auto', minHeight: 34 }} aria-label="Empresa" value={v.unit} onChange={set('unit')}><option value="matriz">Matriz</option><option value="filial">Filial</option></select>}
+      {s.kind === 'titulos' && <select className="select" style={{ width: 'auto', minHeight: 34 }} aria-label="Tipo de título" value={v.titleKind} onChange={set('titleKind')}><option value="pagar">Títulos a pagar</option><option value="receber">Títulos a receber</option></select>}
+      {s.kind === 'grupos' && <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13 }}>Ano<input className="input" type="number" min="2000" max="2100" style={{ width: 90, minHeight: 34 }} value={v.year} onChange={set('year')} /></label>}
+    </div>
+  );
+}
+
+function SentusPreview({ s }) {
+  const sm = s.summary;
+  const total = { itens: 'Faturamento no arquivo', periodo: 'Total do período', titulos: 'Valor dos títulos', estoque: 'Valor do estoque (saldos positivos)', grupos: 'Despesas no arquivo' }[s.kind];
+  return (
+    <>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 12 }}>
+        <div className="kpi" style={{ padding: 16 }}><span className="kpi-label">Linhas</span><span className="kpi-value" style={{ fontSize: 22 }}>{num(sm.count)}</span></div>
+        {sm.from && <div className="kpi" style={{ padding: 16 }}><span className="kpi-label">Período</span><span className="kpi-value" style={{ fontSize: 16 }}>{brDate(sm.from)} a {brDate(sm.to)}</span></div>}
+        <div className="kpi" style={{ padding: 16 }}><span className="kpi-label">{total}</span><span className="kpi-value" style={{ fontSize: 22 }}>{brl(sm.total)}</span></div>
+        {sm.open !== undefined && <div className="kpi" style={{ padding: 16 }}><span className="kpi-label">Em aberto</span><span className="kpi-value" style={{ fontSize: 22 }}>{brl(sm.open)}</span></div>}
+      </div>
+      {s.warnings.map((w) => <div key={w} className="alert warn"><Icon name="info" color="var(--amber)" /><span>{w}</span></div>)}
+    </>
+  );
+}
+
 function MapTable({ fields, headers, sample, mapping, onChange }) {
   const ex = (idx) => (idx === undefined ? '' : sample?.map((r) => r[idx]).filter((x) => x !== '').slice(0, 2).join(' · '));
   return (
@@ -111,6 +145,16 @@ function Wizard({ isDemo, onDone }) {
   const [drag, setDrag] = useState(false);
   const input = useRef(null);
   const [batch, setBatch] = useState(null);
+  const [sOpts, setSOpts] = useState(null);
+  const runSentus = async () => {
+    setBusy(true); setError('');
+    try {
+      const r = await api('/import/sentus', { method: 'POST', body: { token: preview.token, ...sOpts } });
+      setResult({ ...r, sentus: true }); setStep(3); onDone?.();
+      toast('Importação concluída', { text: `${r.label} · ${r.unitLabel}` });
+    } catch (e) { setError(e.message); }
+    setBusy(false);
+  };
 
   const reset = () => { setStep(0); setPreview(null); setBatch(null); setCheck(null); setResult(null); setError(''); setMode('append'); };
 
@@ -119,7 +163,7 @@ function Wizard({ isDemo, onDone }) {
     setError(''); setBusy(true);
     try {
       const d = await previewFile(file);
-      setPreview(d); setType(d.type); setMapping(d.mapping); setStep(1);
+      setPreview(d); if (d.sentus) setSOpts(sentusDefaults(d.sentus)); else { setType(d.type); setMapping(d.mapping); } setStep(1);
     } catch (e) { setError(e.message); }
     setBusy(false);
   };
@@ -130,7 +174,7 @@ function Wizard({ isDemo, onDone }) {
     if (t === 'vendas' && m.valor_unitario === undefined && m.valor_total === undefined) miss.push('Valor (unitário ou total)');
     return miss;
   };
-  const readyToImport = (d) => d.sheets?.length > 1 || !missingFor(d.type, d.mapping).length;
+  const readyToImport = (d) => !!d.sentus || d.sheets?.length > 1 || !missingFor(d.type, d.mapping).length;
   const [edit, setEdit] = useState(null);
   const updateBatch = (i, patch) => setBatch((list) => list.map((b, j) => { if (j !== i) return b; const n = { ...b, ...patch }; return { ...n, ready: readyToImport(n) }; }));
 
@@ -142,7 +186,7 @@ function Wizard({ isDemo, onDone }) {
     setError(''); setBusy(true);
     const out = [];
     for (const file of files) {
-      try { const d = await previewFile(file); out.push({ name: file.name, ...d, ready: readyToImport(d) }); }
+      try { const d = await previewFile(file); out.push({ name: file.name, ...d, ready: readyToImport(d), ...(d.sentus ? { opts: sentusDefaults(d.sentus) } : {}) }); }
       catch (e) { out.push({ name: file.name, error: e.message }); }
     }
     setBatch(out); setStep(1); setBusy(false);
@@ -150,18 +194,21 @@ function Wizard({ isDemo, onDone }) {
 
   const runBatch = async () => {
     setBusy(true); setError('');
-    const rank = (b) => (b.sheets?.length > 1 ? -1 : ORDER.indexOf(b.type));
+    const rank = (b) => (b.sentus ? SENT_RANK[b.sentus.kind] : b.sheets?.length > 1 ? -1 : ORDER.indexOf(b.type));
     const results = [];
     for (const b of batch.filter((x) => x.ready).sort((a, c) => rank(a) - rank(c))) {
       try {
-        if (b.sheets?.length > 1) {
+        if (b.sentus) {
+          const r = await api('/import/sentus', { method: 'POST', body: { token: b.token, ...b.opts } });
+          results.push({ ...r, label: `${r.label} · ${r.unitLabel}`, source: b.name });
+        } else if (b.sheets?.length > 1) {
           const r = await api('/import/commit-all', { method: 'POST', body: { token: b.token } });
           r.results.forEach((x) => results.push({ ...x, source: `${b.name} · aba ${x.sheet}` }));
         } else {
           const r = await api('/import/commit', { method: 'POST', body: { token: b.token, type: b.type, mapping: b.mapping, mode: 'append' } });
           results.push({ ...r, source: b.name });
         }
-      } catch (e) { results.push({ type: b.type, source: b.name, error: e.message }); }
+      } catch (e) { results.push({ type: b.type, label: b.sentus?.label, source: b.name, error: e.message }); }
     }
     setResult({ all: true, results, replacedDemo: results.some((r) => r.replacedDemo) }); setStep(3); onDone?.();
     toast('Importação concluída', { text: `${num(results.reduce((n, x) => n + (x.inserted || 0), 0))} linha(s) importada(s).` });
@@ -232,15 +279,20 @@ function Wizard({ isDemo, onDone }) {
                 {batch.map((b, i) => (
                   <tr key={b.name}>
                     <td>{b.name}</td>
-                    <td className="muted">{b.error ? '—' : b.sheets?.length > 1 ? b.sheets.map((x) => x.label).join(', ') : (
+                    <td className="muted">{b.error ? '—' : b.sentus ? (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                        <span style={{ color: 'var(--text)' }}>SENTUS · {b.sentus.label}</span>
+                        <SentusOptions s={b.sentus} v={b.opts} onChange={(o) => updateBatch(i, { opts: o })} />
+                      </div>
+                    ) : b.sheets?.length > 1 ? b.sheets.map((x) => x.label).join(', ') : (
                       <select className="select" style={{ minHeight: 34, minWidth: 170 }} aria-label={`Tipo de ${b.name}`} value={b.type}
                         onChange={(e) => updateBatch(i, { type: e.target.value, mapping: b.mappings[e.target.value] || {} })}>
                         {Object.entries(TYPE_LABEL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
                       </select>
                     )}</td>
                     <td className="num">{b.error ? '—' : num(b.sheets?.length > 1 ? b.sheets.reduce((n, x) => n + x.rowCount, 0) : b.rowCount)}</td>
-                    <td style={{ color: b.ready ? 'var(--green)' : 'var(--red-text)', fontSize: 13 }}>{b.error || (b.ready ? 'Pronto' : `Falta indicar: ${missingFor(b.type, b.mapping).join(', ')}`)}</td>
-                    <td>{!b.error && !(b.sheets?.length > 1) && <button className={`btn sm ${b.ready ? '' : 'primary'}`} onClick={() => setEdit(i)}>Ajustar colunas</button>}</td>
+                    <td style={{ color: b.ready ? 'var(--green)' : 'var(--red-text)', fontSize: 13 }}>{b.error || (b.sentus?.warnings.length ? <span title={b.sentus.warnings.join('\n')} style={{ color: 'var(--amber-text)' }}>Pronto · {b.sentus.warnings.length} aviso(s)</span> : b.ready ? 'Pronto' : `Falta indicar: ${missingFor(b.type, b.mapping).join(', ')}`)}</td>
+                    <td>{!b.error && !b.sentus && !(b.sheets?.length > 1) && <button className={`btn sm ${b.ready ? '' : 'primary'}`} onClick={() => setEdit(i)}>Ajustar colunas</button>}</td>
                   </tr>
                 ))}
               </tbody>
@@ -270,7 +322,22 @@ function Wizard({ isDemo, onDone }) {
         </div>
       )}
 
-      {step === 1 && preview && (
+      {step === 1 && preview?.sentus && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+          <div className="card-head">
+            <div><h2 className="card-title">Relatório do SENTUS reconhecido · {preview.sentus.label} ({preview.sentus.code})</h2><p className="card-sub">{preview.filename} · confira o resumo e os avisos antes de importar.</p></div>
+          </div>
+          <SentusPreview s={preview.sentus} />
+          <SentusOptions s={preview.sentus} v={sOpts} onChange={setSOpts} />
+          {isDemo && preview.sentus.kind !== 'periodo' && <div className="alert warn"><Icon name="info" color="var(--amber)" /><span>Esta é a primeira importação: <strong>todos os dados de demonstração serão apagados</strong>. Usuários e configurações continuam.</span></div>}
+          <div className="toolbar" style={{ justifyContent: 'flex-end' }}>
+            <button className="btn" onClick={reset}>Voltar</button>
+            <button className="btn primary" onClick={runSentus} disabled={busy}>{busy ? <><Spinner color="#fff" />Importando…</> : preview.sentus.kind === 'periodo' ? 'Conferir com as vendas' : 'Importar'}</button>
+          </div>
+        </div>
+      )}
+
+      {step === 1 && preview && !preview.sentus && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
           {preview.sheets?.length > 1 && (
             <div className="alert info" style={{ alignItems: 'center', flexWrap: 'wrap' }}>
@@ -362,9 +429,14 @@ function Wizard({ isDemo, onDone }) {
         <div className="rise" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 14, padding: '24px 0', textAlign: 'center' }}>
           <span style={{ width: 56, height: 56, borderRadius: '50%', background: 'var(--green-bg)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Icon name="check" size={26} color="var(--green)" width={2.6} /></span>
           <h2 style={{ fontSize: 18, fontWeight: 600 }}>Importação concluída</h2>
-          {result.all ? (
+          {result.sentus ? (
+            <div className="muted" style={{ lineHeight: 1.7, maxWidth: 560 }}>
+              <p style={{ margin: 0 }}><strong style={{ color: 'var(--text)' }}>{result.label}</strong> · {result.unitLabel}: {result.kind === 'periodo' ? 'conferência feita' : `${num(result.inserted)} linha(s)${result.updated ? `, ${num(result.updated)} atualizada(s)` : ''}${result.orders ? ` em ${num(result.orders)} documento(s)` : ''}`}.{result.replacedDemo ? ' Os dados de demonstração foram removidos.' : ''}</p>
+              {result.notes?.length > 0 && <ul style={{ margin: '8px 0 0', paddingLeft: 18, textAlign: 'left', fontSize: 13 }}>{result.notes.map((n) => <li key={n}>{n}</li>)}</ul>}
+            </div>
+          ) : result.all ? (
             <ul className="muted" style={{ margin: 0, padding: 0, listStyle: 'none', lineHeight: 1.8 }}>
-              {result.results.map((r, i) => <li key={i}><strong style={{ color: 'var(--text)' }}>{TYPE_LABEL[r.type] || 'Arquivo'}</strong> ({r.source || `aba ${r.sheet}`}): {r.error ? r.error : `${num(r.inserted)} linha(s)${r.orders ? ` em ${num(r.orders)} pedido(s)` : ''}${r.skipped ? `, ${num(r.skipped)} repetida(s) ignorada(s)` : ''}${r.errorCount ? `, ${num(r.errorCount)} com erro` : ''}`}{r.notes?.length ? <span className="dim" style={{ display: 'block', fontSize: 12 }}>{r.notes.join(' ')}</span> : null}</li>)}
+              {result.results.map((r, i) => <li key={i}><strong style={{ color: 'var(--text)' }}>{r.label || TYPE_LABEL[r.type] || 'Arquivo'}</strong> ({r.source || `aba ${r.sheet}`}): {r.error ? r.error : r.kind === 'periodo' ? 'conferência com as vendas' : `${num(r.inserted)} linha(s)${r.orders ? ` em ${num(r.orders)} pedido(s)` : ''}${r.skipped ? `, ${num(r.skipped)} repetida(s) ignorada(s)` : ''}${r.errorCount ? `, ${num(r.errorCount)} com erro` : ''}`}{r.notes?.length ? <span className="dim" style={{ display: 'block', fontSize: 12 }}>{r.notes.join(' ')}</span> : null}</li>)}
               {result.replacedDemo && <li>Os dados de demonstração foram removidos.</li>}
             </ul>
           ) : (

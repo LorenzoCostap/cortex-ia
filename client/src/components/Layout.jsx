@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { api } from '../api.js';
+import { api, UNIT_KEY } from '../api.js';
 import { NavLink, Link } from 'react-router-dom';
 import { useAuth } from '../auth.jsx';
 import { Icon, BrandMark } from './ui.jsx';
@@ -67,6 +67,25 @@ export default function Layout({ children }) {
       </aside>
       <main className="main">{children}</main>
     </div>
+  );
+}
+
+/** Seletor Empresa: Todas / Matriz / Filial (aparece quando há dados do SENTUS separados por empresa). */
+export function UnitSelect() {
+  const { me } = useAuth();
+  if (!me?.units?.length) return null;
+  let saved = null;
+  try { saved = localStorage.getItem(UNIT_KEY); } catch { /* sem armazenamento */ }
+  const value = me.units.includes(saved) ? saved : '';
+  const change = (v) => {
+    try { if (v) localStorage.setItem(UNIT_KEY, v); else localStorage.removeItem(UNIT_KEY); } catch { /* sem armazenamento */ }
+    window.location.reload(); // recarrega as telas já com a empresa escolhida
+  };
+  return (
+    <select className="select" aria-label="Empresa" style={{ width: 'auto', minHeight: 42 }} value={value} onChange={(e) => change(e.target.value)}>
+      <option value="">Empresa: todas (somadas)</option>
+      {me.units.map((u) => <option key={u} value={u}>Empresa: {u === 'filial' ? 'Filial' : 'Matriz'}</option>)}
+    </select>
   );
 }
 

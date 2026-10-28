@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useState } from 'react';
-import { api } from './api.js';
+import { api, setUnit, UNIT_KEY } from './api.js';
 
 const AuthCtx = createContext(null);
 export const useAuth = () => useContext(AuthCtx);
@@ -13,7 +13,7 @@ function applyAppearance(a) {
 
 export function AuthProvider({ children }) {
   const [me, setMe] = useState(undefined); // undefined = carregando, null = deslogado
-  const refresh = useCallback(() => api('/auth/me').then((d) => { setMe(d); applyAppearance(d.appearance); return d; }).catch(() => { setMe(null); return null; }), []);
+  const refresh = useCallback(() => api('/auth/me').then((d) => { let saved = null; try { saved = localStorage.getItem(UNIT_KEY); } catch { /* sem armazenamento */ } setUnit(d.units?.includes(saved) ? saved : null); setMe(d); applyAppearance(d.appearance); return d; }).catch(() => { setMe(null); return null; }), []);
   useEffect(() => { refresh(); }, [refresh]);
   useEffect(() => {
     const out = () => setMe(null);

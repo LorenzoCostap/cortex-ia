@@ -16,6 +16,7 @@ import { ask, ollamaStatus, ollamaSpeed } from './ai.js';
 import { QUESTIONS } from './answers.js';
 import { subscribe, broadcast, tvCount, refreshInsights, getInsights, buildReport, saveReport, REPORT_TYPES, startScheduler, scanWatchFolder, watchStatus } from './services.js';
 import { TYPES, readFile, detectType, autoMap, validate, commit, importAll, stash, unstash, drop } from './importer.js';
+import { commitSentus } from './sentus.js';
 import { runBackup, listBackups, restoreBackup, defaultBackupDir } from './backup.js';
 import { seedDemo, generateDemoData } from './seed.js';
 import { isIso, refMonth, monthStart, monthEnd, todayStr, addMonths } from './dates.js';
@@ -66,6 +67,7 @@ app.get('/api/auth/me', requireAuth, (req, res) => {
   res.json({
     user: { id: req.user.id, name: req.user.name, email: req.user.email, role: req.user.role, mustChangePassword: !!req.user.must_change_password },
     org: { slug: req.user.org_slug, name: req.user.org_name, segment: req.user.org_segment, isDemo: !!req.user.is_demo, logo: logoUrl(org(req)) },
+    units: db.prepare("SELECT unit FROM orders WHERE org_id = ? AND unit IS NOT NULL UNION SELECT unit FROM bills WHERE org_id = ? AND unit IS NOT NULL UNION SELECT unit FROM expenses WHERE org_id = ? AND unit IS NOT NULL").all(org(req), org(req), org(req)).map((r) => r.unit).sort(),
     permissions, tv: s.tv, appearance: s.appearance, showTools: s.ai.showTools, today: todayStr(), refMonth: refMonth(), aiEnabled: s.ai.enabled !== false
   });
 });
@@ -369,6 +371,10 @@ app.post('/api/import/preview', requirePerm('importacao'), wrap(async (req, res)
   if (!req.body?.length) return res.status(400).json({ error: 'Arquivo vazio.' });
   let parsed;
   try { parsed = await readFile(req.body, filename); } catch (e) { return res.status(400).json({ error: e.message }); }
+  if (parsed.sentus) { // relatório do SENTUS: prévia própria (sem mapeamento de colunas)
+    const { rows, ...info } = parsed.sentus;
+    return res.json({ token: stash(org(req), filename, parsed), filename, sentus: info, rowCount: rows.length });
+  }
   const type = detectType(parsed.headers);
   const token = stash(org(req), filename, parsed);
   res.json({ token, filename, type, headers: parsed.headers, sample: parsed.rows.slice(0, 5), rowCount: parsed.rows.length, mapping: autoMap(type, parsed.headers), mappings: Object.fromEntries(Object.keys(TYPES).map((t) => [t, autoMap(t, parsed.headers)])), sheets: parsed.sheets?.map((sh) => ({ name: sh.name, type: sh.type, label: TYPES[sh.type].label, rowCount: sh.rows.length })),
@@ -396,6 +402,18 @@ app.post('/api/import/commit', requirePerm('importacao'), (req, res) => {
     refreshInsights(org(req), { force: true }).catch(() => {});
     try { refreshAlerts(org(req)); } catch { /* alertas são recalculados depois pelo agendador */ }
     res.json({ ...r, errorCount: v.errorCount, notes: v.summary.notes });
+  } catch (e) { res.status(400).json({ error: e.message }); }
+});
+
+app.post('/api/import/sentus', requirePerm('importacao'), (req, res) => {
+  try {
+    const p = unstash(org(req), req.body?.token);
+    if (!p.sentus) return res.status(400).json({ error: 'Este arquivo não é um relatório do SENTUS.' });
+    const r = commitSentus(org(req), req.user.id, p.sentus, { unit: req.body.unit, titleKind: req.body.titleKind, year: req.body.year, filename: p.filename });
+    drop(req.body.token);
+    refreshInsights(org(req), { force: true }).catch(() => {});
+    try { refreshAlerts(org(req)); } catch { /* alertas são recalculados depois pelo agendador */ }
+    res.json(r);
   } catch (e) { res.status(400).json({ error: e.message }); }
 });
 

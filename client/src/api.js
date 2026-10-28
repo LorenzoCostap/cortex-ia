@@ -2,10 +2,16 @@ export class ApiError extends Error {
   constructor(message, status) { super(message); this.status = status; }
 }
 
+// Empresa escolhida no seletor (matriz/filial); sem escolha, as duas somadas
+export const UNIT_KEY = 'cortex-empresa';
+let unit = null;
+export const setUnit = (u) => { unit = u || null; };
+const unitHeader = () => (unit ? { 'x-cortex-empresa': unit } : {});
+
 export async function api(path, { method = 'GET', body } = {}) {
   let res;
   try {
-    res = await fetch(`/api${path}`, { method, headers: body ? { 'Content-Type': 'application/json' } : undefined, body: body ? JSON.stringify(body) : undefined, credentials: 'same-origin' });
+    res = await fetch(`/api${path}`, { method, headers: { ...(body ? { 'Content-Type': 'application/json' } : {}), ...unitHeader() }, body: body ? JSON.stringify(body) : undefined, credentials: 'same-origin' });
   } catch {
     throw new ApiError('Não foi possível falar com o servidor do Cortex. Ele está rodando?', 0);
   }
@@ -19,7 +25,7 @@ export async function api(path, { method = 'GET', body } = {}) {
 
 /** Faz a pergunta e entrega cada evento (passo, ferramenta, resposta) conforme chega. */
 export async function askStream(question, history, onEvent, signal) {
-  const res = await fetch('/api/ai/ask', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ question, history }), signal });
+  const res = await fetch('/api/ai/ask', { method: 'POST', headers: { 'Content-Type': 'application/json', ...unitHeader() }, body: JSON.stringify({ question, history }), signal });
   if (!res.ok) {
     const d = await res.json().catch(() => ({}));
     throw new ApiError(d.error || `Erro ${res.status}`, res.status);

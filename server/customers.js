@@ -1,5 +1,7 @@
 // Detalhe de um cliente e tabela de clientes do período.
 import { db } from './db.js';
+import { currentUnit } from './context.js';
+const U = (t) => { const u = currentUnit(); return u ? `(SELECT * FROM ${t} WHERE unit = '${u}')` : t; };
 import { todayStr, addDays, addMonths, monthStart, monthEnd, monthKey, monthLabel, daysBetween, refMonth, brDate } from './dates.js';
 
 const r2 = (v) => Math.round(v * 100) / 100;
@@ -15,7 +17,7 @@ export function customerTable(org, from, to, prev, limit = 50) {
       SUM(CASE WHEN o.date BETWEEN ? AND ? THEN 1 ELSE 0 END) orders,
       SUM(CASE WHEN o.date BETWEEN ? AND ? THEN o.total ELSE 0 END) prev,
       MAX(o.date) last
-    FROM customers c JOIN orders o ON o.customer_id = c.id
+    FROM customers c JOIN ${U('orders')} o ON o.customer_id = c.id
     WHERE c.org_id = ? AND (o.date BETWEEN ? AND ? OR o.date BETWEEN ? AND ?)
     GROUP BY c.id HAVING cur > 0 OR prev > 0
     ORDER BY cur DESC LIMIT ?`).all(from, to, from, to, pFrom, pTo, org, from, to, pFrom, pTo, limit);
@@ -27,7 +29,7 @@ export function customerDetail(org, id) {
   const c = db.prepare('SELECT id, code, name, seller, region FROM customers WHERE id = ? AND org_id = ?').get(+id, org);
   if (!c) return null;
   const today = todayStr(), ref = refMonth(today);
-  const sumQ = db.prepare('SELECT COALESCE(SUM(total),0) v, COUNT(*) n FROM orders WHERE customer_id = ? AND date BETWEEN ? AND ?');
+  const sumQ = db.prepare(`SELECT COALESCE(SUM(total),0) v, COUNT(*) n FROM ${U('orders')} WHERE customer_id = ? AND date BETWEEN ? AND ?`);
 
   // 12 meses até o mês de referência, com o mesmo mês do ano anterior
   const months = [];
@@ -37,16 +39,16 @@ export function customerDetail(org, id) {
   }
   const total12 = months.reduce((s, m) => s + m.value, 0);
   const from12 = addMonths(ref, -11), to12 = monthEnd(ref);
-  const ranks = db.prepare('SELECT customer_id id, SUM(total) v FROM orders WHERE org_id = ? AND date BETWEEN ? AND ? GROUP BY customer_id ORDER BY v DESC').all(org, from12, to12);
+  const ranks = db.prepare(`SELECT customer_id id, SUM(total) v FROM ${U('orders')} WHERE org_id = ? AND date BETWEEN ? AND ? GROUP BY customer_id ORDER BY v DESC`).all(org, from12, to12);
   const rank = ranks.findIndex((r) => r.id === c.id) + 1;
 
   const cur = months[11], prev = months[10];
   const base3 = (months[8].value + months[9].value + months[10].value) / 3;
 
   // Frequência: intervalo médio entre dias com pedido nos 6 meses antes do mês de referência
-  const dates = db.prepare('SELECT DISTINCT date FROM orders WHERE customer_id = ? AND date BETWEEN ? AND ? ORDER BY date').all(c.id, addMonths(ref, -6), addDays(ref, -1)).map((r) => r.date);
+  const dates = db.prepare(`SELECT DISTINCT date FROM ${U('orders')} WHERE customer_id = ? AND date BETWEEN ? AND ? ORDER BY date`).all(c.id, addMonths(ref, -6), addDays(ref, -1)).map((r) => r.date);
   const freq = dates.length > 1 ? daysBetween(dates[0], dates[dates.length - 1]) / (dates.length - 1) : null;
-  const last = db.prepare('SELECT MAX(date) d FROM orders WHERE customer_id = ?').get(c.id).d;
+  const last = db.prepare(`SELECT MAX(date) d FROM ${U('orders')} WHERE customer_id = ?`).get(c.id).d;
   const sinceLast = last ? daysBetween(last, today) : null;
 
   const bills = db.prepare("SELECT due_date, amount FROM bills WHERE org_id = ? AND kind = 'receber' AND paid_at IS NULL AND party = ? ORDER BY due_date").all(org, c.name);
@@ -58,14 +60,14 @@ export function customerDetail(org, id) {
 
   // Produtos: média mensal dos 3 meses anteriores × mês de referência
   const prodQ = db.prepare(`SELECT p.name, SUM(CASE WHEN o.date BETWEEN ? AND ? THEN i.qty*i.unit_price ELSE 0 END) cur, SUM(CASE WHEN o.date BETWEEN ? AND ? THEN i.qty*i.unit_price ELSE 0 END) base
-    FROM order_items i JOIN orders o ON o.id = i.order_id JOIN products p ON p.id = i.product_id
+    FROM order_items i JOIN ${U('orders')} o ON o.id = i.order_id JOIN products p ON p.id = i.product_id
     WHERE o.customer_id = ? AND o.date BETWEEN ? AND ? GROUP BY p.id`);
   const products = prodQ.all(ref, monthEnd(ref), addMonths(ref, -3), addDays(ref, -1), c.id, addMonths(ref, -3), monthEnd(ref))
     .map((p) => ({ name: p.name, avg: r2(p.base / 3), current: r2(p.cur), diff: r2(p.cur - p.base / 3) }))
     .filter((p) => p.avg > 0 || p.current > 0)
     .sort((a, b) => a.diff - b.diff);
 
-  const orders = db.prepare('SELECT id, date, total, external_id FROM orders WHERE customer_id = ? ORDER BY date DESC, id DESC LIMIT 8').all(c.id).map((o) => {
+  const orders = db.prepare(`SELECT id, date, total, external_id FROM ${U('orders')} WHERE customer_id = ? ORDER BY date DESC, id DESC LIMIT 8`).all(c.id).map((o) => {
     const items = db.prepare('SELECT p.name, i.qty FROM order_items i JOIN products p ON p.id = i.product_id WHERE i.order_id = ? ORDER BY i.qty*i.unit_price DESC').all(o.id);
     return { id: o.id, number: o.external_id, date: o.date, total: r2(o.total), items: items.length, summary: items.slice(0, 2).map((x) => x.name).join(', ') + (items.length > 2 ? ` e mais ${items.length - 2}` : '') };
   });

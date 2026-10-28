@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import { api } from '../api.js';
 import { useAuth } from '../auth.jsx';
 import PrintButton from '../components/PrintButton.jsx';
-import { PageHead } from '../components/Layout.jsx';
+import { PageHead, UnitSelect } from '../components/Layout.jsx';
 import { Icon, Kpi, KpiSkeleton, CardSkeleton, ErrorBox, useAsync } from '../components/ui.jsx';
 import PeriodPicker, { periodLabel, loadSavedPeriod, savePeriod } from '../components/PeriodPicker.jsx';
 import RevenueGoalChart, { GoalLegend } from '../components/RevenueGoalChart.jsx';
@@ -66,6 +66,7 @@ export default function Dashboard() {
   return (
     <>
       <PageHead eyebrow={`${hello}, ${me.user.name.split(' ')[0]}`} title="Dashboard">
+        <UnitSelect />
         {me.org.isDemo && <span className="badge demo">Dados de demonstração</span>}
         {d.data && <span className="badge" style={{ padding: '8px 12px', fontSize: 13 }}><Icon name="calendar" size={15} color="var(--muted)" />{d.data.label} <span className="dim">vs {prevShort}</span></span>}
         <CompareToggle value={cmp} onChange={setCmp} />

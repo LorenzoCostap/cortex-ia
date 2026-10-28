@@ -3,6 +3,7 @@ import ExcelJS from 'exceljs';
 import { db, logEvent } from './db.js';
 import { clearOrgData } from './seed.js';
 import { isIso } from './dates.js';
+import { detect as detectSentus, parseSentus } from './sentus.js';
 
 /* ---------------- Tipos de planilha ---------------- */
 export const TYPES = {
@@ -174,6 +175,10 @@ export async function readFile(buffer, filename) {
   if (ext === 'csv' || ext === 'txt') {
     let text = buffer.toString('utf8');
     if (text.includes('�')) text = buffer.toString('latin1'); // planilhas antigas do Excel em ANSI
+    // Relatórios do ERP SENTUS: sem cabeçalho e sem aspas, reconhecidos pela estrutura das linhas
+    const plain = text.replace(/^\uFEFF/, '').split(/\r?\n/).filter((l) => l.trim()).map((l) => l.split(';'));
+    const kind = detectSentus(plain, filename);
+    if (kind) return { sentus: parseSentus(kind, plain), headers: [], rows: [] };
     rows = parseCsv(text);
   } else if (ext === 'xlsx' || ext === 'xlsm') {
     const wb = new ExcelJS.Workbook();
