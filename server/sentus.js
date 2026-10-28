@@ -146,7 +146,7 @@ export function parseSentus(kind, rows) {
   } else if (kind === 'periodo') {
     summary = { ...summary, ...range(R.map((x) => x.date)), total: sum(R, (x) => x.total) };
     summary.discount = sum(R, (x) => x.desconto);
-    warnings.push('Este relatório aplica o desconto de cada nota às vendas por item (26M) já importadas e confere os totais; ele não cria vendas novas.');
+    warnings.push('Este relatório ajusta as vendas por item (26M) já importadas para o total líquido de cada nota (desconto, frete ou acréscimo) e confere os totais; ele não cria vendas novas.');
   } else if (kind === 'titulos') {
     const openOf = (x) => x.saldo ?? (x.pago_em ? 0 : x.valor);
     summary = { ...summary, ...range(R.map((x) => x.venc || x.emissao)), total: sum(R, (x) => x.valor), open: sum(R.filter((x) => openOf(x) > 0), openOf) };
@@ -291,20 +291,21 @@ function applyDiscounts(orgId, p, unit, notes) {
   const find = db.prepare('SELECT id, total FROM orders WHERE org_id = ? AND external_id = ?');
   const scaleItems = db.prepare('UPDATE order_items SET unit_price = unit_price * ? WHERE order_id = ?');
   const setTotal = db.prepare('UPDATE orders SET total = ? WHERE id = ?');
-  let applied = 0, amount = 0, missing = 0, mismatch = 0;
+  let applied = 0, amount = 0, other = 0, otherAmount = 0, missing = 0, mismatch = 0;
   for (const x of p.rows) {
     const o = find.get(orgId, `sentus:${unit}:${x.tipo}:${x.doc}`);
     if (!o) { missing++; continue; }
     if (Math.abs(o.total - x.total) < 0.01) continue; // já está líquido (ou importado de novo)
-    // só aplica quando os itens somam o valor bruto da nota e a diferença é o desconto
-    if (x.desconto > 0 && Math.abs(o.total - x.bruto) < 0.02 && o.total > 0) {
-      scaleItems.run(x.total / o.total, o.id); setTotal.run(x.total, o.id);
-      applied++; amount += o.total - x.total;
-    } else mismatch++;
+    // o total líquido da nota (80M) é o valor final: desconto, frete ou acréscimo entram no faturamento
+    if (o.total <= 0) { mismatch++; continue; }
+    scaleItems.run(x.total / o.total, o.id); setTotal.run(x.total, o.id);
+    if (x.desconto > 0 && Math.abs(o.total - x.bruto) < 0.02) { applied++; amount += o.total - x.total; } else { other++; otherAmount += x.total - o.total; }
   }
-  if (applied) { notes.push(`Desconto aplicado em ${applied} nota(s): ${brl(amount)} a menos no faturamento, que agora está líquido.`); clearProductCache(); }
+  if (applied || other) clearProductCache();
+  if (applied) notes.push(`Desconto aplicado em ${applied} nota(s): ${brl(amount)} a menos no faturamento, que agora está líquido.`);
+  if (other) notes.push(`${other} nota(s) com outra diferença (ex.: frete ou acréscimo) passaram a usar o total líquido da nota: ${brl(otherAmount)} de ajuste no faturamento.`);
+  if (mismatch) notes.push(`${mismatch} nota(s) sem valor nos itens não puderam ser ajustadas.`);
   if (missing) notes.push(`${missing} nota(s) do 80M ainda não têm as vendas por item (26M) da ${UNIT_LABEL[unit]} no Cortex: importe o 26M e depois o 80M de novo para aplicar os descontos.`);
-  if (mismatch) notes.push(`${mismatch} nota(s) com diferença que não é desconto (ex.: frete ou acréscimo) ficaram como no 26M.`);
 }
 
 function checkPeriodo(orgId, p, unit, notes) {

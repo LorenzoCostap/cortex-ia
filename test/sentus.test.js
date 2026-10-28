@@ -90,6 +90,12 @@ test('linhas quebradas, desconto do 80M, título pago em parte e despesa sem gru
   assert.ok(r.notes.some((n) => /Desconto aplicado em 1 nota/.test(n)));
   const rev = asUnit('filial', () => M.periodSummary(org, '2026-09-10', '2026-09-10').revenue);
   assert.equal(rev, 490); // 50 + (500 - 60)
+  // nota com frete/acréscimo (itens 50, nota 55 sem desconto): passa a valer o total da nota
+  const it2 = await I.readFile(csv([item('10/1', '11/09/2026', 'NFe', 'CLIENTE E', '100', 'CAMISETA', 1, 50)]), 'Report_26M.csv');
+  S.commitSentus(org, null, it2.sentus, { unit: 'filial' });
+  const per2 = await I.readFile(csv([['10/1', '11/09/2026', 'NFe', 'CLIENTE E', '55.00', '0.00', '55.00', '55.00']]), 'Report_80M.csv');
+  assert.ok(S.commitSentus(org, null, per2.sentus, { unit: 'filial' }).notes.some((n) => /outra diferença/.test(n)));
+  assert.equal(asUnit('filial', () => M.periodSummary(org, '2026-09-11', '2026-09-11').revenue), 55);
   S.commitSentus(org, null, per.sentus, { unit: 'filial' }); // de novo: não desconta duas vezes
   assert.equal(asUnit('filial', () => M.periodSummary(org, '2026-09-10', '2026-09-10').revenue), 490);
 
